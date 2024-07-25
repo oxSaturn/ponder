@@ -13,7 +13,7 @@ import {
   isOneColumn,
   isOptionalColumn,
 } from "@/schema/utils.js";
-import type { SyncStoreTables } from "@/sync-store/encoding.js";
+import type { PonderSyncSchema } from "@/sync-store/encoding.js";
 import {
   moveLegacyTables,
   migrationProvider as syncMigrationProvider,
@@ -55,7 +55,7 @@ export class PostgresDatabaseService implements BaseDatabaseService {
   private publishSchema?: string | undefined;
 
   db: HeadlessKysely<InternalTables>;
-  syncDb: HeadlessKysely<SyncStoreTables>;
+  syncDb: HeadlessKysely<PonderSyncSchema>;
   indexingDb: HeadlessKysely<any>;
   readonlyDb: HeadlessKysely<any>;
 
@@ -125,7 +125,7 @@ export class PostgresDatabaseService implements BaseDatabaseService {
       },
     });
 
-    this.syncDb = new HeadlessKysely<SyncStoreTables>({
+    this.syncDb = new HeadlessKysely<PonderSyncSchema>({
       name: "sync",
       common,
       dialect: new PostgresDialect({ pool: this.syncPool }),

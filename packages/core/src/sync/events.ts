@@ -17,12 +17,11 @@ import type { Service } from "./service.js";
 export type RawEvent = {
   filter_id: string;
   checkpoint: string;
-  chain_id: number;
   block: Block;
   log: Log | null;
   transaction: Transaction | null;
-  transaction_receipt?: TransactionReceipt | null;
-  call_trace: CallTrace | null;
+  // call_trace: CallTrace | null;
+  transaction_receipt: TransactionReceipt | null;
 };
 
 export type SetupEvent = {

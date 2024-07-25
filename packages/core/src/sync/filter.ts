@@ -18,7 +18,7 @@ export type BlockFilter = {
 
 export type Filter = LogFilter | BlockFilter;
 
-type LogAddressFilter = {
+export type LogAddressFilter = {
   type: "log";
   address: Address | Address[] | AddressFilter;
   eventSelector: Hex;

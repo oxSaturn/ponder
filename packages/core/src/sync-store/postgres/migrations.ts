@@ -858,6 +858,7 @@ const migrations: Record<string, Migration> = {
         .addColumn("hash", "varchar(66)", (col) => col.notNull())
         .addColumn("chain_id", "integer", (col) => col.notNull())
         .addColumn("number", "numeric(78, 0)", (col) => col.notNull())
+        .addColumn("timestamp", "varchar(79)", (col) => col.notNull())
         .addColumn("body", "jsonb", (col) => col.notNull())
         .addPrimaryKeyConstraint("primary_key", ["chain_id", "hash"])
         .execute();
@@ -907,6 +908,7 @@ const migrations: Record<string, Migration> = {
         .addColumn("hash", "varchar(66)", (col) => col.notNull())
         .addColumn("chain_id", "integer", (col) => col.notNull())
         .addColumn("block_number", "numeric(78, 0)", (col) => col.notNull())
+        .addColumn("transaction_index", "integer", (col) => col.notNull())
         .addColumn("body", "jsonb", (col) => col.notNull())
         .addPrimaryKeyConstraint("primary_key", ["chain_id", "hash"])
         .execute();

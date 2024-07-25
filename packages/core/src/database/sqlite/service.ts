@@ -14,7 +14,7 @@ import {
   isOneColumn,
   isOptionalColumn,
 } from "@/schema/utils.js";
-import type { SyncStoreTables } from "@/sync-store/sqlite/encoding.js";
+import type { PonderSyncSchema } from "@/sync-store/encoding.js";
 import { migrationProvider as syncMigrationProvider } from "@/sync-store/sqlite/migrations.js";
 import {
   type Checkpoint,
@@ -62,7 +62,7 @@ export class SqliteDatabaseService implements BaseDatabaseService {
   db: HeadlessKysely<InternalTables>;
   readonlyDb: HeadlessKysely<any>;
   indexingDb: HeadlessKysely<any>;
-  syncDb: HeadlessKysely<SyncStoreTables>;
+  syncDb: HeadlessKysely<PonderSyncSchema>;
 
   private buildId: string = null!;
   private heartbeatInterval?: NodeJS.Timeout;
@@ -116,7 +116,7 @@ export class SqliteDatabaseService implements BaseDatabaseService {
 
     const syncDatabaseFile = path.join(directory, "ponder_sync.db");
     this.syncDatabase = createSqliteDatabase(syncDatabaseFile);
-    this.syncDb = new HeadlessKysely<SyncStoreTables>({
+    this.syncDb = new HeadlessKysely<PonderSyncSchema>({
       name: "sync",
       common,
       dialect: new SqliteDialect({ database: this.syncDatabase }),

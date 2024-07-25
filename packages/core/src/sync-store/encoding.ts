@@ -14,6 +14,7 @@ type BlockTable = {
   hash: Hash;
   chain_id: number;
   number: string | bigint;
+  timestamp: string | bigint;
   body: string | SyncBlock;
 };
 
@@ -34,6 +35,7 @@ export const formatBlock = (
     hash: block.hash,
     chain_id: chainId,
     number: formatHex(sql, block.number),
+    timestamp: formatHex(sql, block.timestamp),
     body: formatBody(sql, block),
   };
 };
@@ -76,6 +78,7 @@ type TransactionTable = {
   hash: Hash;
   chain_id: number;
   block_number: string | bigint;
+  transaction_index: number;
   body: string | SyncTransaction;
 };
 
@@ -88,6 +91,7 @@ export const formatTransaction = (
     hash: transaction.hash,
     chain_id: chainId,
     block_number: formatHex(sql, transaction.blockNumber),
+    transaction_index: hexToNumber(transaction.transactionIndex),
     body: formatBody(sql, transaction),
   };
 };

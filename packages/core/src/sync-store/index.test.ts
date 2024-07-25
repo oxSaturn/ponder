@@ -1,5 +1,5 @@
 import { ALICE } from "@/_test/constants.js";
-import { erc20ABI } from "@/_test/generated.js";
+import { erc20ABI, factoryABI } from "@/_test/generated.js";
 import {
   setupAnvil,
   setupCommon,
@@ -9,18 +9,19 @@ import { getRawRPCData } from "@/_test/utils.js";
 import { PostgresDatabaseService } from "@/database/postgres/service.js";
 import { SqliteDatabaseService } from "@/database/sqlite/service.js";
 import { createSchema } from "@/schema/schema.js";
-import type { LogFilter } from "@/sync/filter.js";
+import type { BlockFilter, LogFilter } from "@/sync/filter.js";
 import {
+  decodeCheckpoint,
   encodeCheckpoint,
   maxCheckpoint,
   zeroCheckpoint,
 } from "@/utils/checkpoint.js";
 import { toLowerCase } from "@/utils/lowercase.js";
 import {
-  type Hex,
   getAbiItem,
   getEventSelector,
   hexToBigInt,
+  hexToNumber,
   padHex,
   zeroAddress,
 } from "viem";
@@ -458,7 +459,128 @@ test("populateEvents() handles block bounds", async (context) => {
   cleanup();
 });
 
-test.todo("populateEvents() handles log address filters");
+test("populateEvents() computes log filter checkpoint", async (context) => {
+  const { cleanup, database } = await setupDatabase(context);
+  const rpcData = await getRawRPCData(context.sources);
+
+  const syncStore = createSyncStore({
+    common: context.common,
+    db: database.syncDb,
+    sql: database.kind,
+  });
+
+  await syncStore.insertLogs(rpcData.block3.logs, 1);
+  await syncStore.insertBlock(rpcData.block3.block, 1);
+  await syncStore.insertTransaction(rpcData.block3.transactions[0], 1);
+
+  const filter = { type: "log" } satisfies LogFilter;
+
+  await syncStore.populateEvents({
+    filters: [filter],
+    chainId: 1,
+    fromBlock: hexToBigInt(rpcData.block3.block.number),
+    toBlock: hexToBigInt(rpcData.block3.block.number),
+  });
+
+  const { checkpoint } = await database.syncDb
+    .selectFrom("event")
+    .select("checkpoint")
+    .executeTakeFirstOrThrow();
+
+  expect(decodeCheckpoint(checkpoint).blockTimestamp).toBe(
+    hexToNumber(rpcData.block3.block.timestamp),
+  );
+  expect(decodeCheckpoint(checkpoint).chainId).toBe(1n);
+  expect(decodeCheckpoint(checkpoint).blockNumber).toBe(3n);
+  expect(decodeCheckpoint(checkpoint).transactionIndex).toBe(0n);
+  expect(decodeCheckpoint(checkpoint).eventType).toBe(5);
+  expect(decodeCheckpoint(checkpoint).eventIndex).toBe(0n);
+
+  cleanup();
+});
+
+test("populateEvents() handles log address filters", async (context) => {
+  const { cleanup, database } = await setupDatabase(context);
+  const rpcData = await getRawRPCData(context.sources);
+
+  const syncStore = createSyncStore({
+    common: context.common,
+    db: database.syncDb,
+    sql: database.kind,
+  });
+
+  await syncStore.insertLogs(rpcData.block3.logs, 1);
+  await syncStore.insertLogs(rpcData.block4.logs, 1);
+  await syncStore.insertBlock(rpcData.block4.block, 1);
+  await syncStore.insertTransaction(rpcData.block4.transactions[0], 1);
+
+  const eventSelector = getEventSelector(
+    getAbiItem({ abi: factoryABI, name: "PairCreated" }),
+  );
+
+  const filter = {
+    type: "log",
+    address: {
+      type: "log",
+      address: context.factory.address,
+      eventSelector,
+      childAddressLocation: "topic1",
+    },
+  } satisfies LogFilter;
+
+  await syncStore.populateEvents({
+    filters: [filter],
+    chainId: 1,
+    fromBlock: hexToBigInt(rpcData.block4.block.number),
+    toBlock: hexToBigInt(rpcData.block4.block.number),
+  });
+
+  const events = await database.syncDb
+    .selectFrom("event")
+    .selectAll()
+    .execute();
+
+  expect(events).toHaveLength(1);
+
+  cleanup();
+});
+
+test("populateEvents() handles block filter logic", async (context) => {
+  const { cleanup, database } = await setupDatabase(context);
+  const rpcData = await getRawRPCData(context.sources);
+
+  const syncStore = createSyncStore({
+    common: context.common,
+    db: database.syncDb,
+    sql: database.kind,
+  });
+
+  await syncStore.insertBlock(rpcData.block2.block, 1);
+  await syncStore.insertBlock(rpcData.block3.block, 1);
+  await syncStore.insertBlock(rpcData.block4.block, 1);
+
+  const filter = {
+    type: "block",
+    offset: 1,
+    interval: 2,
+  } satisfies BlockFilter;
+
+  await syncStore.populateEvents({
+    filters: [filter],
+    chainId: 1,
+    fromBlock: hexToBigInt(rpcData.block2.block.number),
+    toBlock: hexToBigInt(rpcData.block4.block.number),
+  });
+
+  const events = await database.syncDb
+    .selectFrom("event")
+    .selectAll()
+    .execute();
+
+  expect(events).toHaveLength(1);
+
+  cleanup();
+});
 
 test("populateEvents() handles conflicts", async (context) => {
   const { cleanup, database } = await setupDatabase(context);
@@ -500,7 +622,7 @@ test("populateEvents() handles conflicts", async (context) => {
   cleanup();
 });
 
-test.only("getEvents() returns events", async (context) => {
+test("getEvents() returns events", async (context) => {
   const { cleanup, database } = await setupDatabase(context);
   const rpcData = await getRawRPCData(context.sources);
 
