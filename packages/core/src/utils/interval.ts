@@ -1,10 +1,11 @@
+export type Interval = [number, number];
 /**
  * Return the total sum of a list of numeric intervals.
  *
  * @param intervals List of numeric intervals to find the sum of.
  * @returns Sum of the intervals.
  */
-export function intervalSum(intervals: [number, number][]) {
+export function intervalSum(intervals: Interval[]) {
   let totalSum = 0;
 
   for (const [start, end] of intervals) {
@@ -20,17 +21,15 @@ export function intervalSum(intervals: [number, number][]) {
  * @param intervals List of numeric intervals to find the union of.
  * @returns Union of the intervals, represented as a list of intervals.
  */
-export function intervalUnion(intervals_: [number, number][]) {
+export function intervalUnion(intervals_: Interval[]) {
   if (intervals_.length === 0) return [];
 
   // Create copies to avoid mutating the originals.
-  const intervals = intervals_.map(
-    (interval) => [...interval] as [number, number],
-  );
+  const intervals = intervals_.map((interval) => [...interval] as Interval);
   // Sort intervals based on the left end.
   intervals.sort((a, b) => a[0] - b[0]);
 
-  const result: [number, number][] = [];
+  const result: Interval[] = [];
   let currentInterval = intervals[0]!;
 
   for (let i = 1; i < intervals.length; i++) {
@@ -58,10 +57,10 @@ export function intervalUnion(intervals_: [number, number][]) {
  * @returns Intersection of the intervals, represented as a list of intervals.
  */
 export function intervalIntersection(
-  list1: [number, number][],
-  list2: [number, number][],
-): [number, number][] {
-  const result: [number, number][] = [];
+  list1: Interval[],
+  list2: Interval[],
+): Interval[] {
+  const result: Interval[] = [];
   let i = 0;
   let j = 0;
 
@@ -94,13 +93,11 @@ export function intervalIntersection(
  * @param list2 Second list of numeric intervals.
  * @returns Intersection of the intervals, represented as a list of intervals.
  */
-export function intervalIntersectionMany(
-  lists: [number, number][][],
-): [number, number][] {
+export function intervalIntersectionMany(lists: Interval[][]): Interval[] {
   if (lists.length === 0) return [];
   if (lists.length === 1) return lists[0]!;
 
-  let result: [number, number][] = lists[0]!;
+  let result: Interval[] = lists[0]!;
 
   for (let i = 1; i < lists.length; i++) {
     result = intervalIntersection(result, lists[i]!);
@@ -117,14 +114,14 @@ export function intervalIntersectionMany(
  * @returns Difference of the intervals, represented as a list of intervals.
  */
 export function intervalDifference(
-  initial: [number, number][],
-  remove: [number, number][],
-): [number, number][] {
+  initial: Interval[],
+  remove: Interval[],
+): Interval[] {
   // Create copies to avoid mutating the originals.
-  const initial_ = initial.map((interval) => [...interval] as [number, number]);
-  const remove_ = remove.map((interval) => [...interval] as [number, number]);
+  const initial_ = initial.map((interval) => [...interval] as Interval);
+  const remove_ = remove.map((interval) => [...interval] as Interval);
 
-  const result: [number, number][] = [];
+  const result: Interval[] = [];
 
   let i = 0;
   let j = 0;
@@ -170,10 +167,10 @@ export function getChunks({
   intervals,
   maxChunkSize,
 }: {
-  intervals: [number, number][];
+  intervals: Interval[];
   maxChunkSize: number;
 }) {
-  const _chunks: [number, number][] = [];
+  const _chunks: Interval[] = [];
 
   for (const interval of intervals) {
     const [startBlock, endBlock] = interval;
@@ -193,9 +190,9 @@ export function getChunks({
 }
 
 export class ProgressTracker {
-  target: [number, number];
-  private _completed: [number, number][];
-  private _required: [number, number][] | null = null;
+  target: Interval;
+  private _completed: Interval[];
+  private _required: Interval[] | null = null;
   private _checkpoint: number | null = null;
 
   /**
@@ -207,8 +204,8 @@ export class ProgressTracker {
     target,
     completed,
   }: {
-    target: [number, number];
-    completed: [number, number][];
+    target: Interval;
+    completed: Interval[];
   }) {
     if (target[0] > target[1])
       throw new Error(
@@ -224,7 +221,7 @@ export class ProgressTracker {
    *
    * @throws Will throw an error if the new interval is invalid.
    */
-  addCompletedInterval(interval: [number, number]) {
+  addCompletedInterval(interval: Interval) {
     if (interval[0] > interval[1])
       throw new Error(
         `Invalid interval: start (${interval[0]}) is greater than end (${interval[1]})`,

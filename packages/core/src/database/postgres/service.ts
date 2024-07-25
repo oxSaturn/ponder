@@ -13,7 +13,7 @@ import {
   isOneColumn,
   isOptionalColumn,
 } from "@/schema/utils.js";
-import type { SyncStoreTables } from "@/sync-store/postgres/encoding.js";
+import type { SyncStoreTables } from "@/sync-store/encoding.js";
 import {
   moveLegacyTables,
   migrationProvider as syncMigrationProvider,

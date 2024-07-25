@@ -973,6 +973,188 @@ const migrations: Record<string, Migration> = {
         .execute();
     },
   },
+  "2024_07_24_0_new_sync_design": {
+    async up(db: Kysely<any>) {
+      // Drop old sync tables except for "rpcRequestResults"
+      await db.schema.dropTable("blocks").execute();
+      await db.schema.dropTable("transactions").execute();
+      await db.schema.dropTable("transactionReceipts").execute();
+      await db.schema.dropTable("logs").execute();
+      await db.schema.dropTable("callTraces").execute();
+      await db.schema.dropTable("logFilters").execute();
+      await db.schema.dropTable("logFilterIntervals").execute();
+      await db.schema.dropTable("factoryLogFilters").execute();
+      await db.schema.dropTable("factoryLogFilterIntervals").execute();
+      await db.schema.dropTable("traceFilters").execute();
+      await db.schema.dropTable("traceFilterIntervals").execute();
+      await db.schema.dropTable("factoryTraceFilters").execute();
+      await db.schema.dropTable("factoryTraceFilterIntervals").execute();
+      await db.schema.dropTable("blockFilters").execute();
+      await db.schema.dropTable("blockFilterIntervals").execute();
+
+      // block
+      await db.schema
+        .createTable("block")
+        .addColumn("hash", "varchar(66)", (col) => col.notNull())
+        .addColumn("chain_id", "integer", (col) => col.notNull())
+        .addColumn("number", "varchar(79)", (col) => col.notNull())
+        .addColumn("body", "jsonb", (col) => col.notNull())
+        .addPrimaryKeyConstraint("primary_key", ["chain_id", "hash"])
+        .execute();
+
+      await db.schema
+        .createIndex("block_number_index")
+        .on("block")
+        .column("number")
+        .execute();
+
+      // log
+      await db.schema
+        .createTable("log")
+        .addColumn("block_hash", "varchar(66)", (col) => col.notNull())
+        .addColumn("log_index", "integer", (col) => col.notNull())
+        .addColumn("chain_id", "integer", (col) => col.notNull())
+        .addColumn("block_number", "varchar(79)", (col) => col.notNull())
+        .addColumn("address", "varchar(42)", (col) => col.notNull())
+        .addColumn("topic0", "varchar(66)")
+        .addColumn("topic1", "varchar(66)")
+        .addColumn("topic2", "varchar(66)")
+        .addColumn("topic3", "varchar(66)")
+        .addColumn("transaction_hash", "varchar(66)", (col) => col.notNull())
+        .addColumn("body", "jsonb", (col) => col.notNull())
+        .addPrimaryKeyConstraint("primary_key", [
+          "chain_id",
+          "block_hash",
+          "log_index",
+        ])
+        .execute();
+
+      await db.schema
+        .createIndex("log_block_number_index")
+        .on("log")
+        .column("block_number")
+        .execute();
+
+      await db.schema
+        .createIndex("log_filter_index")
+        .on("log")
+        .columns(["address", "topic0", "topic1", "topic2", "topic3"])
+        .execute();
+
+      // transaction
+      await db.schema
+        .createTable("transaction")
+        .addColumn("hash", "varchar(66)", (col) => col.notNull())
+        .addColumn("chain_id", "integer", (col) => col.notNull())
+        .addColumn("block_number", "varchar(79)", (col) => col.notNull())
+        .addColumn("body", "jsonb", (col) => col.notNull())
+        .addPrimaryKeyConstraint("primary_key", ["chain_id", "hash"])
+        .execute();
+
+      await db.schema
+        .createIndex("transaction_block_number_index")
+        .on("transaction")
+        .column("block_number")
+        .execute();
+
+      // call_trace
+
+      // transaction_receipt
+      await db.schema
+        .createTable("transaction_receipt")
+        .addColumn("hash", "varchar(66)", (col) => col.notNull())
+        .addColumn("chain_id", "integer", (col) => col.notNull())
+        .addColumn("block_number", "varchar(79)", (col) => col.notNull())
+        .addColumn("body", "jsonb", (col) => col.notNull())
+        .addPrimaryKeyConstraint("primary_key", ["chain_id", "hash"])
+        .execute();
+
+      await db.schema
+        .createIndex("transaction_receipt_block_number_index")
+        .on("transaction")
+        .column("block_number")
+        .execute();
+
+      // address
+      await db.schema
+        .createTable("address")
+        .addColumn("id", "integer", (col) => col.notNull().primaryKey()) // Auto-increment
+        .addColumn("chain_id", "integer", (col) => col.notNull())
+        .addColumn("filter_id", "text", (col) => col.notNull())
+        .addColumn("block_number", "varchar(79)", (col) => col.notNull())
+        .addColumn("address", "varchar(42)", (col) => col.notNull())
+        .execute();
+
+      await db.schema
+        .createIndex("address_filter_id_index")
+        .on("address")
+        .column("filter_id")
+        .execute();
+
+      await db.schema
+        .createIndex("address_chain_id_index")
+        .on("address")
+        .column("chain_id")
+        .execute();
+
+      await db.schema
+        .createIndex("address_block_number_index")
+        .on("address")
+        .column("block_number")
+        .execute();
+
+      // interval
+      await db.schema
+        .createTable("interval")
+        .addColumn("id", "integer", (col) => col.notNull().primaryKey()) // Auto-increment
+        .addColumn("chain_id", "integer", (col) => col.notNull())
+        .addColumn("filter_id", "text", (col) => col.notNull())
+        .addColumn("from", "varchar(79)", (col) => col.notNull())
+        .addColumn("to", "varchar(79)", (col) => col.notNull())
+        .execute();
+
+      await db.schema
+        .createIndex("interval_filter_id_index")
+        .on("interval")
+        .column("filter_id")
+        .execute();
+
+      await db.schema
+        .createIndex("interval_chain_id_index")
+        .on("interval")
+        .column("chain_id")
+        .execute();
+
+      await db.schema
+        .createIndex("interval_from_index")
+        .on("interval")
+        .column("from")
+        .execute();
+
+      await db.schema
+        .createIndex("interval_to_index")
+        .on("interval")
+        .column("to")
+        .execute();
+
+      // event
+      await db.schema
+        .createTable("event")
+        .addColumn("filter_id", "text", (col) => col.notNull())
+        .addColumn("checkpoint", "varchar(75)", (col) => col.notNull())
+        .addColumn("chain_id", "integer", (col) => col.notNull())
+        .addColumn("block_number", "varchar(79)", (col) => col.notNull())
+        .addColumn("block_hash", "varchar(66)", (col) => col.notNull())
+        .addColumn("log_index", "integer")
+        .addColumn("transaction_hash", "varchar(66)")
+        .addPrimaryKeyConstraint("primary_key", [
+          "filter_id",
+          "checkpoint",
+          "chain_id",
+        ])
+        .execute();
+    },
+  },
 };
 
 async function hasCheckpointCol(db: Kysely<any>) {

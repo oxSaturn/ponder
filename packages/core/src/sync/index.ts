@@ -49,7 +49,7 @@ export type BaseSyncService = {
 
 export type SyncBlock = RpcBlock<Exclude<BlockTag, "pending">, true>;
 export type SyncLog = Log<Hex, Hex, false>;
-export type SyncTransaction = RpcTransaction;
+export type SyncTransaction = RpcTransaction<false>;
 export type SyncTransactionReceipt = RpcTransactionReceipt;
 export type SyncTrace =
   | SyncCallTrace

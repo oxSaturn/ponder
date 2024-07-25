@@ -25,8 +25,6 @@ import { getHistoricalStore } from "@/indexing-store/historical.js";
 import { getReadonlyStore } from "@/indexing-store/readonly.js";
 import { getRealtimeStore } from "@/indexing-store/realtime.js";
 import type { IndexingStore, ReadonlyStore } from "@/indexing-store/store.js";
-import { PostgresSyncStore } from "@/sync-store/postgres/store.js";
-import { SqliteSyncStore } from "@/sync-store/sqlite/store.js";
 import type { SyncStore } from "@/sync-store/store.js";
 import type { RequestQueue } from "@/utils/requestQueue.js";
 import pg from "pg";
