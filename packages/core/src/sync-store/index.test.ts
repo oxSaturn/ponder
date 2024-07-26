@@ -39,42 +39,31 @@ const defaultDatabaseServiceSetup = {
 };
 
 const setupDatabase = async (context: TestContext) => {
+  let database: SqliteDatabaseService | PostgresDatabaseService;
+
   if (context.databaseConfig.kind === "sqlite") {
-    const database = new SqliteDatabaseService({
+    database = new SqliteDatabaseService({
       common: context.common,
       directory: context.databaseConfig.directory,
     });
-
-    const result = await database.setup(defaultDatabaseServiceSetup);
-    await database.migrateSyncStore();
-
-    const cleanup = () => database.kill();
-
-    return {
-      database,
-      namespaceInfo: result.namespaceInfo,
-      cleanup,
-    };
   } else {
-    const database = new PostgresDatabaseService({
+    database = new PostgresDatabaseService({
       common: context.common,
       poolConfig: context.databaseConfig.poolConfig,
       userNamespace: context.databaseConfig.schema,
     });
-    await database.migrateSyncStore();
-
-    const result = await database.setup(defaultDatabaseServiceSetup);
-
-    await database.migrateSyncStore();
-
-    const cleanup = () => database.kill();
-
-    return {
-      database,
-      namespaceInfo: result.namespaceInfo,
-      cleanup,
-    };
   }
+
+  const result = await database.setup(defaultDatabaseServiceSetup);
+  await database.migrateSyncStore();
+
+  const cleanup = () => database.kill();
+
+  return {
+    database,
+    namespaceInfo: result.namespaceInfo,
+    cleanup,
+  };
 };
 
 test("setup creates tables", async (context) => {
@@ -163,9 +152,9 @@ test("getAddressess() with no matches", async (context) => {
   cleanup();
 });
 
-test.todo("getInterval() merges intervals");
+test.todo("getInterval() empty");
 
-test.todo("getInterval() finds adjacent filters");
+test.todo("getInterval() merges intervals");
 
 test("insertLogs()", async (context) => {
   const { cleanup, database } = await setupDatabase(context);
@@ -621,6 +610,8 @@ test("populateEvents() handles conflicts", async (context) => {
 
   cleanup();
 });
+
+test.todo("populateEvents() with multiple filters");
 
 test("getEvents() returns events", async (context) => {
   const { cleanup, database } = await setupDatabase(context);

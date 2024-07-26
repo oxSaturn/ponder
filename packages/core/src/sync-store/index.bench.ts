@@ -17,7 +17,6 @@ import { type Checkpoint, maxCheckpoint } from "@/utils/checkpoint.js";
 import { drainAsyncGenerator } from "@/utils/drainAsyncGenerator.js";
 import { range } from "@/utils/range.js";
 import { type TestContext, bench } from "vitest";
-import type { SyncStore } from "./store.js";
 
 let context: TestContext;
 

@@ -162,17 +162,17 @@ export const _eth_getBlockByNumber = (
  */
 export const _eth_getBlockByHash = (
   { requestQueue }: Pick<BaseSyncService, "requestQueue">,
-  { blockHash }: { blockHash: Hex },
+  { hash }: { hash: Hex },
 ): Promise<SyncBlock> =>
   requestQueue
     .request({
       method: "eth_getBlockByHash",
-      params: [blockHash, true],
+      params: [hash, true],
     })
     .then((_block) => {
       if (!_block)
         throw new BlockNotFoundError({
-          blockHash,
+          blockHash: hash,
         });
       return _block as SyncBlock;
     });

@@ -640,7 +640,7 @@ export const handleReorg = async (
     if (newLocalChain.length === 0) break;
     else {
       remoteBlock = await _eth_getBlockByHash(service, {
-        blockHash: remoteBlock.parentHash,
+        hash: remoteBlock.parentHash,
       });
       newLocalChain.pop();
     }

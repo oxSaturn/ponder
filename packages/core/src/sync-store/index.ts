@@ -29,6 +29,8 @@ import {
   formatTransactionReceipt,
 } from "./encoding.js";
 
+// TODO(kyle) filter includes chainId
+
 export type SyncStore = {
   insertAddress(
     filter: AddressFilter,
@@ -62,15 +64,15 @@ export type SyncStore = {
   ): Promise<void>;
   hasTransactionReceipt(hash: Hash, chainId: number): Promise<boolean>;
   populateEvents(args: {
-    filters: (Filter | AddressFilter)[];
+    filters: Filter[];
     chainId: number;
     fromBlock: bigint;
     toBlock: bigint;
   }): Promise<void>;
   /** Returns an ordered list of events based on the provided sources and pagination arguments. */
   getEvents(args: {
-    filters: (Filter | AddressFilter)[];
-    chainId: number;
+    filters: Filter[];
+    chainId?: number;
     after: string;
     before: string;
     limit: number;
@@ -78,7 +80,6 @@ export type SyncStore = {
   deleteSync(fromBlock: bigint, chainId: number): Promise<void>;
   // insertRpcRequestResult
   // getRpcRequestResult;
-  // TODO(kyle) prune
 };
 
 export const createSyncStore = ({
@@ -124,7 +125,6 @@ export const createSyncStore = ({
         })
         .execute();
     }),
-  // TODO(kyle) handle adjacent intervals
   getIntervals: async (type, filter, chainId) =>
     db.wrap({ method: "getIntervals" }, () =>
       db.transaction().execute(async (tx) => {
@@ -139,6 +139,8 @@ export const createSyncStore = ({
         const mergedIntervals = intervalUnion(
           existingIntervals.map((i) => [Number(i.from), Number(i.to)]),
         );
+
+        if (mergedIntervals.length === 0) return [];
 
         const mergedIntervalRows = mergedIntervals.map(([from, to]) => ({
           chain_id: chainId,
@@ -280,7 +282,7 @@ export const createSyncStore = ({
 substr((${blockTimestampQuery}), -10, 10) ||
 substr('0000000000000000' || chain_id, -16, 16) ||
 substr(block_number, -16, 16) ||
-substr(('0000000000000000' || (${transactionIndexQuery})), -16, 16) ||
+substr('0000000000000000' || (${transactionIndexQuery}), -16, 16) ||
 '5' ||
 substr('0000000000000000' || log_index, -16, 16)`)
               .as("checkpoint"),
@@ -444,7 +446,9 @@ substr(number, -16, 16) ||
           "in",
           filters.map((filter) => getFilterId("event", filter)),
         )
-        .where("event.chain_id", "=", chainId)
+        .$if(chainId !== undefined, (qb) =>
+          qb.where("event.chain_id", "=", chainId!),
+        )
         .where("event.checkpoint", ">", after)
         .where("event.checkpoint", "<=", before)
         .orderBy("event.checkpoint", "asc")
@@ -462,5 +466,7 @@ substr(number, -16, 16) ||
 
     return { events, cursor };
   },
-  deleteSync: async () => {},
+  // pruneByBlock,
+  // pruneBySource,
+  // pruneByChain,
 });

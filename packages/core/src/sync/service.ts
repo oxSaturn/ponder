@@ -226,10 +226,7 @@ export const create = async ({
         (source) => source.networkName === network.name,
       );
 
-      const requestQueue = createRequestQueue({
-        network,
-        common,
-      });
+      const requestQueue = createRequestQueue({ network, common });
 
       const hasEndBlock = networkSources.every(
         (source) => source.endBlock !== undefined,
