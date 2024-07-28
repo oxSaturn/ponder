@@ -6,27 +6,33 @@ import type {
 } from "@/sync/index.js";
 import { encodeAsText } from "@/utils/encoding.js";
 import { toLowerCase } from "@/utils/lowercase.js";
+import { replaceBigInts } from "@ponder/utils";
 import type { Generated, Insertable } from "kysely";
 import type { Address, Hash, Hex } from "viem";
-import { hexToBigInt, hexToNumber } from "viem";
+import {
+  formatBlock,
+  formatLog,
+  formatTransaction,
+  formatTransactionReceipt,
+  hexToBigInt,
+  hexToNumber,
+} from "viem";
 
 type BlockTable = {
   hash: Hash;
   chain_id: number;
   number: string | bigint;
   timestamp: string | bigint;
-  body: string | SyncBlock;
+  body: string;
 };
 
-export const formatHex = (sql: "sqlite" | "postgres", hex: Hex) =>
+const formatHex = (sql: "sqlite" | "postgres", hex: Hex) =>
   sql === "sqlite" ? encodeAsText(hex) : hexToBigInt(hex);
 
-const formatBody = <body>(
-  sql: "sqlite" | "postgres",
-  body: body,
-): body | string => (sql === "sqlite" ? JSON.stringify(body) : body);
+const encodeBody = (body: unknown) =>
+  JSON.stringify(replaceBigInts(body, (b) => `#bigint.${String(b)}`));
 
-export const formatBlock = (
+export const encodeBlock = (
   block: SyncBlock,
   chainId: number,
   sql: "sqlite" | "postgres",
@@ -36,7 +42,7 @@ export const formatBlock = (
     chain_id: chainId,
     number: formatHex(sql, block.number),
     timestamp: formatHex(sql, block.timestamp),
-    body: formatBody(sql, block),
+    body: encodeBody(formatBlock(block)),
   };
 };
 
@@ -51,10 +57,10 @@ type LogTable = {
   topic2: Hex | null;
   topic3: Hex | null;
   transaction_hash: Hash;
-  body: string | SyncLog;
+  body: string;
 };
 
-export const formatLog = (
+export const encodeLog = (
   log: SyncLog,
   chainId: number,
   sql: "sqlite" | "postgres",
@@ -70,7 +76,7 @@ export const formatLog = (
     topic2: log.topics[2] ?? null,
     topic3: log.topics[3] ?? null,
     transaction_hash: log.transactionHash,
-    body: formatBody(sql, log),
+    body: encodeBody(formatLog(log)),
   };
 };
 
@@ -79,10 +85,10 @@ type TransactionTable = {
   chain_id: number;
   block_number: string | bigint;
   transaction_index: number;
-  body: string | SyncTransaction;
+  body: string;
 };
 
-export const formatTransaction = (
+export const encodeTransaction = (
   transaction: SyncTransaction,
   chainId: number,
   sql: "sqlite" | "postgres",
@@ -92,7 +98,7 @@ export const formatTransaction = (
     chain_id: chainId,
     block_number: formatHex(sql, transaction.blockNumber),
     transaction_index: hexToNumber(transaction.transactionIndex),
-    body: formatBody(sql, transaction),
+    body: encodeBody(formatTransaction(transaction)),
   };
 };
 
@@ -100,10 +106,10 @@ type TransactionReceiptTable = {
   hash: Hash;
   chain_id: number;
   block_number: string | bigint;
-  body: string | SyncTransactionReceipt;
+  body: string;
 };
 
-export const formatTransactionReceipt = (
+export const encodeTransactionReceipt = (
   transactionReceipt: SyncTransactionReceipt,
   chainId: number,
   sql: "sqlite" | "postgres",
@@ -112,7 +118,7 @@ export const formatTransactionReceipt = (
     hash: transactionReceipt.transactionHash,
     chain_id: chainId,
     block_number: formatHex(sql, transactionReceipt.blockNumber),
-    body: formatBody(sql, transactionReceipt),
+    body: encodeBody(formatTransactionReceipt(transactionReceipt)),
   };
 };
 

@@ -59,19 +59,12 @@ const setupDatabase = async (context: TestContext) => {
 test("createHistoricalSync()", async (context) => {
   const { cleanup, syncStore } = await setupDatabase(context);
 
-  const filter = {
-    type: "log",
-    chainId: 1,
-    address: context.sources[0].criteria.address,
-    topics: context.sources[0].criteria.topics,
-  } satisfies LogFilter;
-
   const historicalSync = await createHistoricalSync({
     chain: context.networks[0].chain,
-    filters: [filter],
+    // @ts-expect-error
+    filters: [context.sources[0].filter],
     syncStore,
     requestQueue: context.requestQueues[0],
-    endBlock: 4n,
   });
 
   expect(historicalSync).toBeDefined();
@@ -82,19 +75,12 @@ test("createHistoricalSync()", async (context) => {
 test("sync() with log filter", async (context) => {
   const { cleanup, syncStore, database } = await setupDatabase(context);
 
-  const filter = {
-    type: "log",
-    chainId: 1,
-    address: context.sources[0].criteria.address,
-    topics: context.sources[0].criteria.topics,
-  } satisfies LogFilter;
-
   const historicalSync = await createHistoricalSync({
     chain: context.networks[0].chain,
-    filters: [filter],
+    // @ts-expect-error
+    filters: [context.sources[0].filter],
     syncStore,
     requestQueue: context.requestQueues[0],
-    endBlock: 4n,
   });
 
   await historicalSync.sync([0, 4]);
@@ -119,19 +105,12 @@ test("sync() with log filter", async (context) => {
 test("sync() with cache hit", async (context) => {
   const { cleanup, syncStore, database } = await setupDatabase(context);
 
-  const filter = {
-    type: "log",
-    chainId: 1,
-    address: context.sources[0].criteria.address,
-    topics: context.sources[0].criteria.topics,
-  } satisfies LogFilter;
-
   let historicalSync = await createHistoricalSync({
     chain: context.networks[0].chain,
-    filters: [filter],
+    // @ts-expect-error
+    filters: [context.sources[0].filter],
     syncStore,
     requestQueue: context.requestQueues[0],
-    endBlock: 4n,
   });
   await historicalSync.sync([0, 4]);
 
@@ -139,10 +118,10 @@ test("sync() with cache hit", async (context) => {
 
   historicalSync = await createHistoricalSync({
     chain: context.networks[0].chain,
-    filters: [filter],
+    // @ts-expect-error
+    filters: [context.sources[0].filter],
     syncStore,
     requestQueue: context.requestQueues[0],
-    endBlock: 4n,
   });
   await historicalSync.sync([0, 4]);
 

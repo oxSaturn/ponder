@@ -12,7 +12,6 @@ import {
   decodeFunctionData,
   decodeFunctionResult,
 } from "viem";
-import type { Service } from "./service.js";
 
 export type RawEvent = {
   filter_id: string;
@@ -75,127 +74,127 @@ export type CallTraceEvent = {
 
 export type Event = LogEvent | BlockEvent | CallTraceEvent;
 
-export const decodeEvents = (
-  { common, sourceById }: Pick<Service, "sourceById" | "common">,
-  rawEvents: RawEvent[],
-): Event[] => {
-  const events: Event[] = [];
+// export const decodeEvents = (
+//   { common, sourceById }: Pick<Service, "sourceById" | "common">,
+//   rawEvents: RawEvent[],
+// ): Event[] => {
+//   const events: Event[] = [];
 
-  for (const event of rawEvents) {
-    const source = sourceById[event.sourceId]!;
+//   for (const event of rawEvents) {
+//     const source = sourceById[event.sourceId]!;
 
-    switch (source.type) {
-      case "block": {
-        events.push({
-          type: "block",
-          chainId: event.chainId,
-          sourceName: source.sourceName,
-          event: {
-            block: event.block,
-          },
-          encodedCheckpoint: event.encodedCheckpoint,
-        });
-        break;
-      }
+//     switch (source.type) {
+//       case "block": {
+//         events.push({
+//           type: "block",
+//           chainId: event.chainId,
+//           sourceName: source.sourceName,
+//           event: {
+//             block: event.block,
+//           },
+//           encodedCheckpoint: event.encodedCheckpoint,
+//         });
+//         break;
+//       }
 
-      case "callTrace":
-      case "factoryCallTrace": {
-        try {
-          const abi = source.abi;
+//       case "callTrace":
+//       case "factoryCallTrace": {
+//         try {
+//           const abi = source.abi;
 
-          const data = decodeFunctionData({
-            abi,
-            data: event.trace!.input,
-          });
+//           const data = decodeFunctionData({
+//             abi,
+//             data: event.trace!.input,
+//           });
 
-          const result = decodeFunctionResult({
-            abi,
-            data: event.trace!.output,
-            functionName: data.functionName,
-          });
+//           const result = decodeFunctionResult({
+//             abi,
+//             data: event.trace!.output,
+//             functionName: data.functionName,
+//           });
 
-          const selector = event.trace!.input.slice(0, 10) as Hex;
+//           const selector = event.trace!.input.slice(0, 10) as Hex;
 
-          if (source.abiFunctions.bySelector[selector] === undefined) {
-            throw new Error();
-          }
+//           if (source.abiFunctions.bySelector[selector] === undefined) {
+//             throw new Error();
+//           }
 
-          const functionName =
-            source.abiFunctions.bySelector[selector]!.safeName;
+//           const functionName =
+//             source.abiFunctions.bySelector[selector]!.safeName;
 
-          events.push({
-            type: "callTrace",
-            chainId: event.chainId,
-            contractName: source.contractName,
-            functionName,
-            event: {
-              args: data.args,
-              result,
-              trace: event.trace!,
-              block: event.block,
-              transaction: event.transaction!,
-              transactionReceipt: event.transactionReceipt,
-            },
-            encodedCheckpoint: event.encodedCheckpoint,
-          });
-        } catch (err) {
-          common.logger.debug({
-            service: "app",
-            msg: `Unable to decode trace, skipping it. id: ${event.trace?.id}, input: ${event.trace?.input}, output: ${event.trace?.output}`,
-          });
-        }
-        break;
-      }
+//           events.push({
+//             type: "callTrace",
+//             chainId: event.chainId,
+//             contractName: source.contractName,
+//             functionName,
+//             event: {
+//               args: data.args,
+//               result,
+//               trace: event.trace!,
+//               block: event.block,
+//               transaction: event.transaction!,
+//               transactionReceipt: event.transactionReceipt,
+//             },
+//             encodedCheckpoint: event.encodedCheckpoint,
+//           });
+//         } catch (err) {
+//           common.logger.debug({
+//             service: "app",
+//             msg: `Unable to decode trace, skipping it. id: ${event.trace?.id}, input: ${event.trace?.input}, output: ${event.trace?.output}`,
+//           });
+//         }
+//         break;
+//       }
 
-      case "log":
-      case "factoryLog": {
-        try {
-          const abi = source.abi;
+//       case "log":
+//       case "factoryLog": {
+//         try {
+//           const abi = source.abi;
 
-          const decodedLog = decodeEventLog({
-            abi,
-            data: event.log!.data,
-            topics: event.log!.topics,
-          });
+//           const decodedLog = decodeEventLog({
+//             abi,
+//             data: event.log!.data,
+//             topics: event.log!.topics,
+//           });
 
-          if (
-            event.log!.topics[0] === undefined ||
-            source.abiEvents.bySelector[event.log!.topics[0]] === undefined
-          ) {
-            throw new Error();
-          }
+//           if (
+//             event.log!.topics[0] === undefined ||
+//             source.abiEvents.bySelector[event.log!.topics[0]] === undefined
+//           ) {
+//             throw new Error();
+//           }
 
-          const logEventName =
-            source.abiEvents.bySelector[event.log!.topics[0]]!.safeName;
+//           const logEventName =
+//             source.abiEvents.bySelector[event.log!.topics[0]]!.safeName;
 
-          events.push({
-            type: "log",
-            chainId: event.chainId,
-            contractName: source.contractName,
-            logEventName,
-            event: {
-              args: decodedLog.args,
-              log: event.log!,
-              block: event.block,
-              transaction: event.transaction!,
-              transactionReceipt: event.transactionReceipt,
-            },
-            encodedCheckpoint: event.encodedCheckpoint,
-          });
-        } catch (err) {
-          // TODO(kyle) Because we are strictly setting all `topics` now, this should be a bigger error.
-          common.logger.debug({
-            service: "app",
-            msg: `Unable to decode log, skipping it. id: ${event.log?.id}, data: ${event.log?.data}, topics: ${event.log?.topics}`,
-          });
-        }
-        break;
-      }
+//           events.push({
+//             type: "log",
+//             chainId: event.chainId,
+//             contractName: source.contractName,
+//             logEventName,
+//             event: {
+//               args: decodedLog.args,
+//               log: event.log!,
+//               block: event.block,
+//               transaction: event.transaction!,
+//               transactionReceipt: event.transactionReceipt,
+//             },
+//             encodedCheckpoint: event.encodedCheckpoint,
+//           });
+//         } catch (err) {
+//           // TODO(kyle) Because we are strictly setting all `topics` now, this should be a bigger error.
+//           common.logger.debug({
+//             service: "app",
+//             msg: `Unable to decode log, skipping it. id: ${event.log?.id}, data: ${event.log?.data}, topics: ${event.log?.topics}`,
+//           });
+//         }
+//         break;
+//       }
 
-      default:
-        never(source);
-    }
-  }
+//       default:
+//         never(source);
+//     }
+//   }
 
-  return events;
-};
+//   return events;
+// };

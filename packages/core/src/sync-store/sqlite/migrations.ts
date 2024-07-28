@@ -976,21 +976,27 @@ const migrations: Record<string, Migration> = {
   "2024_07_24_0_new_sync_design": {
     async up(db: Kysely<any>) {
       // Drop old sync tables except for "rpcRequestResults"
-      await db.schema.dropTable("blocks").execute();
-      await db.schema.dropTable("transactions").execute();
-      await db.schema.dropTable("transactionReceipts").execute();
-      await db.schema.dropTable("logs").execute();
-      await db.schema.dropTable("callTraces").execute();
-      await db.schema.dropTable("logFilters").execute();
-      await db.schema.dropTable("logFilterIntervals").execute();
-      await db.schema.dropTable("factoryLogFilters").execute();
-      await db.schema.dropTable("factoryLogFilterIntervals").execute();
-      await db.schema.dropTable("traceFilters").execute();
-      await db.schema.dropTable("traceFilterIntervals").execute();
-      await db.schema.dropTable("factoryTraceFilters").execute();
-      await db.schema.dropTable("factoryTraceFilterIntervals").execute();
-      await db.schema.dropTable("blockFilters").execute();
-      await db.schema.dropTable("blockFilterIntervals").execute();
+      await db.schema.dropTable("blocks").ifExists().execute();
+      await db.schema.dropTable("transactions").ifExists().execute();
+      await db.schema.dropTable("transactionReceipts").ifExists().execute();
+      await db.schema.dropTable("logs").ifExists().execute();
+      await db.schema.dropTable("callTraces").ifExists().execute();
+      await db.schema.dropTable("logFilters").ifExists().execute();
+      await db.schema.dropTable("logFilterIntervals").ifExists().execute();
+      await db.schema.dropTable("factoryLogFilters").ifExists().execute();
+      await db.schema
+        .dropTable("factoryLogFilterIntervals")
+        .ifExists()
+        .execute();
+      await db.schema.dropTable("traceFilters").ifExists().execute();
+      await db.schema.dropTable("traceFilterIntervals").ifExists().execute();
+      await db.schema.dropTable("factoryTraceFilters").ifExists().execute();
+      await db.schema
+        .dropTable("factoryTraceFilterIntervals")
+        .ifExists()
+        .execute();
+      await db.schema.dropTable("blockFilters").ifExists().execute();
+      await db.schema.dropTable("blockFilterIntervals").ifExists().execute();
 
       // block
       await db.schema
@@ -1154,6 +1160,24 @@ const migrations: Record<string, Migration> = {
           "checkpoint",
           "chain_id",
         ])
+        .execute();
+
+      await db.schema
+        .createIndex("event_block_join_index")
+        .on("event")
+        .columns(["block_hash", "chain_id"])
+        .execute();
+
+      await db.schema
+        .createIndex("event_log_join_index")
+        .on("event")
+        .columns(["block_hash", "log_index", "chain_id"])
+        .execute();
+
+      await db.schema
+        .createIndex("event_transaction_join_index")
+        .on("event")
+        .columns(["transaction_hash", "chain_id"])
         .execute();
     },
   },

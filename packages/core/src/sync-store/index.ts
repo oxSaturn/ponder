@@ -21,10 +21,10 @@ import { type SelectQueryBuilder, sql as ksql } from "kysely";
 import type { Address, Hash, Hex } from "viem";
 import {
   type PonderSyncSchema,
-  formatBlock,
-  formatLog,
-  formatTransaction,
-  formatTransactionReceipt,
+  encodeBlock,
+  encodeLog,
+  encodeTransaction,
+  encodeTransactionReceipt,
 } from "./encoding.js";
 
 // TODO(kyle) do nothing on conflict
@@ -149,7 +149,7 @@ export const createSyncStore = ({
       if (logs.length === 0) return;
       await db
         .insertInto("log")
-        .values(logs.map((log) => formatLog(log, chainId, sql)))
+        .values(logs.map((log) => encodeLog(log, chainId, sql)))
         .onConflict((oc) =>
           oc.columns(["block_hash", "log_index", "chain_id"]).doNothing(),
         )
@@ -159,7 +159,7 @@ export const createSyncStore = ({
     db.wrap({ method: "insertBlock" }, async () => {
       await db
         .insertInto("block")
-        .values(formatBlock(block, chainId, sql))
+        .values(encodeBlock(block, chainId, sql))
         .onConflict((oc) => oc.columns(["hash", "chain_id"]).doNothing())
         .execute();
     }),
@@ -177,7 +177,7 @@ export const createSyncStore = ({
     db.wrap({ method: "insertTransaction" }, async () => {
       await db
         .insertInto("transaction")
-        .values(formatTransaction(transaction, chainId, sql))
+        .values(encodeTransaction(transaction, chainId, sql))
         .onConflict((oc) => oc.columns(["hash", "chain_id"]).doNothing())
         .execute();
     }),
@@ -195,7 +195,7 @@ export const createSyncStore = ({
     db.wrap({ method: "insertTransactionReceipt" }, async () => {
       await db
         .insertInto("transaction_receipt")
-        .values(formatTransactionReceipt(transactionReceipt, chainId, sql))
+        .values(encodeTransactionReceipt(transactionReceipt, chainId, sql))
         .execute();
     }),
   hasTransactionReceipt: async (hash, chainId) =>
@@ -256,13 +256,31 @@ export const createSyncStore = ({
       .selectFrom("block")
       .select("block.timestamp")
       .where("hash", "=", ksql.ref("log.block_hash"))
+      .where("chain_id", "=", ksql.ref("log.chain_id"))
       .compile().sql;
 
     const transactionIndexQuery = db
       .selectFrom("transaction")
       .select("transaction.transaction_index")
       .where("hash", "=", ksql.ref("log.transaction_hash"))
+      .where("chain_id", "=", ksql.ref("log.chain_id"))
       .compile().sql;
+
+    const logCheckpointSQLite = `
+substr((${blockTimestampQuery}), -10, 10) ||
+substr('0000000000000000' || chain_id, -16, 16) ||
+substr(block_number, -16, 16) ||
+substr('0000000000000000' || (${transactionIndexQuery}), -16, 16) ||
+'5' ||
+substr('0000000000000000' || log_index, -16, 16)`;
+
+    const logCheckpointPostgres = `
+lpad((${blockTimestampQuery})::text, 10, '0') ||
+lpad(chain_id::text, 16, '0') ||
+lpad(block_number::text, 16, '0') ||
+lpad((${transactionIndexQuery})::text, 16, '0') ||
+'5' ||
+lpad(log_index::text, 16, '0')`;
 
     await db.wrap({ method: "populateEvents" }, async () => {
       switch (filter.type) {
@@ -276,13 +294,11 @@ export const createSyncStore = ({
                   .raw(`'${getFilterId("event", filter)}'`)
                   .as("filter_id"),
                 ksql
-                  .raw(`
-substr((${blockTimestampQuery}), -10, 10) ||
-substr('0000000000000000' || chain_id, -16, 16) ||
-substr(block_number, -16, 16) ||
-substr('0000000000000000' || (${transactionIndexQuery}), -16, 16) ||
-'5' ||
-substr('0000000000000000' || log_index, -16, 16)`)
+                  .raw(
+                    sql === "sqlite"
+                      ? logCheckpointSQLite
+                      : logCheckpointPostgres,
+                  )
                   .as("checkpoint"),
                 "chain_id",
                 "block_number",
@@ -372,13 +388,11 @@ substr('0000000000000000' || log_index, -16, 16)`)
                   .raw(`'${getFilterId("event", filter)}'`)
                   .as("filter_id"),
                 ksql
-                  .raw(`
-substr(timestamp, -10, 10) ||
-substr('0000000000000000' || chain_id, -16, 16) ||
-substr(number, -16, 16) ||
-'9999999999999999' ||
-'5' ||
-'0000000000000000'`)
+                  .raw(
+                    sql === "sqlite"
+                      ? blockCheckpointSQLite
+                      : blockCheckpointPostgres,
+                  )
                   .as("checkpoint"),
                 "chain_id",
                 "number as block_number",
@@ -452,16 +466,31 @@ substr(number, -16, 16) ||
     const events = await db.wrap({ method: "getEvents" }, async () => {
       return await db
         .selectFrom("event")
-        // .innerJoin("block", "block.hash", "event.block_hash")
-        // .leftJoin("log", (join) =>
-        //   join.on((eb) =>
-        //     eb.and([
-        //       eb("event.block_hash", "=", ksql.ref("log.block_hash")),
-        //       eb("event.log_index", "=", ksql.ref("log.log_index")),
-        //     ]),
-        //   ),
-        // )
-        // .leftJoin("transaction", "transaction.hash", "event.transaction_hash")
+        .innerJoin("block", (join) =>
+          join.on((eb) =>
+            eb.and([
+              eb("event.block_hash", "=", ksql.ref("block.hash")),
+              eb("event.chain_id", "=", ksql.ref("block.chain_id")),
+            ]),
+          ),
+        )
+        .leftJoin("log", (join) =>
+          join.on((eb) =>
+            eb.and([
+              eb("event.block_hash", "=", ksql.ref("log.block_hash")),
+              eb("event.log_index", "=", ksql.ref("log.log_index")),
+              eb("event.chain_id", "=", ksql.ref("log.chain_id")),
+            ]),
+          ),
+        )
+        .leftJoin("transaction", (join) =>
+          join.on((eb) =>
+            eb.and([
+              eb("event.transaction_hash", "=", ksql.ref("transaction.hash")),
+              eb("event.chain_id", "=", ksql.ref("transaction.chain_id")),
+            ]),
+          ),
+        )
         // .leftJoin(
         //   "transaction_receipt",
         //   "transaction_receipt.hash",
@@ -503,3 +532,19 @@ substr(number, -16, 16) ||
   // pruneBySource,
   // pruneByChain,
 });
+
+const blockCheckpointSQLite = `
+substr(timestamp, -10, 10) ||
+substr('0000000000000000' || chain_id, -16, 16) ||
+substr(number, -16, 16) ||
+'9999999999999999' ||
+'5' ||
+'0000000000000000'`;
+
+const blockCheckpointPostgres = `
+substr(timestamp, -10, 10) ||
+substr('0000000000000000' || chain_id, -16, 16) ||
+substr(number, -16, 16) ||
+'9999999999999999' ||
+'5' ||
+'0000000000000000'`;

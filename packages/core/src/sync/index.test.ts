@@ -7,10 +7,8 @@ import { PostgresDatabaseService } from "@/database/postgres/service.js";
 import { SqliteDatabaseService } from "@/database/sqlite/service.js";
 import { createSchema } from "@/schema/schema.js";
 import { createSyncStore } from "@/sync-store/index.js";
-import type { LogFilter } from "@/sync/filter.js";
 import { drainAsyncGenerator } from "@/utils/drainAsyncGenerator.js";
 import { type TestContext, beforeEach, expect, test } from "vitest";
-import { createHistoricalSync } from "./index.js";
 import { createSync } from "./index2.js";
 
 beforeEach(setupCommon);

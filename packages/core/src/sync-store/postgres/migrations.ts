@@ -835,22 +835,54 @@ const migrations: Record<string, Migration> = {
   "2024_07_24_0_new_sync_design": {
     async up(db: Kysely<any>) {
       // Drop old sync tables except for "rpcRequestResults"
-      await db.schema.dropTable("blocks").execute();
-      await db.schema.dropTable("transactions").execute();
-      await db.schema.dropTable("transactionReceipts").execute();
-      await db.schema.dropTable("logs").execute();
-      await db.schema.dropTable("callTraces").execute();
-      await db.schema.dropTable("blocks").execute();
-      await db.schema.dropTable("logFilters").execute();
-      await db.schema.dropTable("logFilterIntervals").execute();
-      await db.schema.dropTable("factoryLogFilters").execute();
-      await db.schema.dropTable("factoryLogFilterIntervals").execute();
-      await db.schema.dropTable("traceFilters").execute();
-      await db.schema.dropTable("traceFilterIntervals").execute();
-      await db.schema.dropTable("factoryTraceFilters").execute();
-      await db.schema.dropTable("factoryTraceFilterIntervals").execute();
-      await db.schema.dropTable("blockFilters").execute();
-      await db.schema.dropTable("blockFilterIntervals").execute();
+      await db.schema.dropTable("blocks").ifExists().cascade().execute();
+      await db.schema.dropTable("transactions").ifExists().cascade().execute();
+      await db.schema
+        .dropTable("transactionReceipts")
+        .ifExists()
+        .cascade()
+        .execute();
+      await db.schema.dropTable("logs").ifExists().cascade().execute();
+      await db.schema.dropTable("callTraces").ifExists().cascade().execute();
+      await db.schema.dropTable("blocks").ifExists().cascade().execute();
+      await db.schema.dropTable("logFilters").ifExists().cascade().execute();
+      await db.schema
+        .dropTable("logFilterIntervals")
+        .ifExists()
+        .cascade()
+        .execute();
+      await db.schema
+        .dropTable("factoryLogFilters")
+        .ifExists()
+        .cascade()
+        .execute();
+      await db.schema
+        .dropTable("factoryLogFilterIntervals")
+        .ifExists()
+        .cascade()
+        .execute();
+      await db.schema.dropTable("traceFilters").ifExists().cascade().execute();
+      await db.schema
+        .dropTable("traceFilterIntervals")
+        .ifExists()
+        .cascade()
+        .execute();
+      await db.schema
+        .dropTable("factoryTraceFilters")
+        .ifExists()
+        .cascade()
+        .execute();
+      await db.schema
+        .dropTable("factoryTraceFilterIntervals")
+        .ifExists()
+        .cascade()
+        .execute();
+      await db.schema.dropTable("blockFilters").ifExists().cascade().execute();
+      await db.schema
+        .dropTable("blockFilterIntervals")
+        .ifExists()
+        .cascade()
+        .execute();
 
       // block
       await db.schema
@@ -860,7 +892,7 @@ const migrations: Record<string, Migration> = {
         .addColumn("number", "numeric(78, 0)", (col) => col.notNull())
         .addColumn("timestamp", "varchar(79)", (col) => col.notNull())
         .addColumn("body", "jsonb", (col) => col.notNull())
-        .addPrimaryKeyConstraint("primary_key", ["chain_id", "hash"])
+        .addPrimaryKeyConstraint("block_primary_key", ["chain_id", "hash"])
         .execute();
 
       await db.schema
@@ -883,7 +915,7 @@ const migrations: Record<string, Migration> = {
         .addColumn("topic3", "varchar(66)")
         .addColumn("transaction_hash", "varchar(66)", (col) => col.notNull())
         .addColumn("body", "jsonb", (col) => col.notNull())
-        .addPrimaryKeyConstraint("primary_key", [
+        .addPrimaryKeyConstraint("log_primary_key", [
           "chain_id",
           "block_hash",
           "log_index",
@@ -910,7 +942,10 @@ const migrations: Record<string, Migration> = {
         .addColumn("block_number", "numeric(78, 0)", (col) => col.notNull())
         .addColumn("transaction_index", "integer", (col) => col.notNull())
         .addColumn("body", "jsonb", (col) => col.notNull())
-        .addPrimaryKeyConstraint("primary_key", ["chain_id", "hash"])
+        .addPrimaryKeyConstraint("transaction_primary_key", [
+          "chain_id",
+          "hash",
+        ])
         .execute();
 
       await db.schema
@@ -928,7 +963,10 @@ const migrations: Record<string, Migration> = {
         .addColumn("chain_id", "integer", (col) => col.notNull())
         .addColumn("block_number", "numeric(78, 0)", (col) => col.notNull())
         .addColumn("body", "jsonb", (col) => col.notNull())
-        .addPrimaryKeyConstraint("primary_key", ["chain_id", "hash"])
+        .addPrimaryKeyConstraint("transaction_receipt_primary_key", [
+          "chain_id",
+          "hash",
+        ])
         .execute();
 
       await db.schema
@@ -1009,7 +1047,7 @@ const migrations: Record<string, Migration> = {
         .addColumn("block_hash", "varchar(66)", (col) => col.notNull())
         .addColumn("log_index", "integer")
         .addColumn("transaction_hash", "varchar(66)")
-        .addPrimaryKeyConstraint("primary_key", [
+        .addPrimaryKeyConstraint("event_primary_key", [
           "filter_id",
           "checkpoint",
           "chain_id",

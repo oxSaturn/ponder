@@ -191,7 +191,7 @@ export const createSync = async (args: CreateSyncParameters): Promise<Sync> => {
           filters: args.sources.map(({ filter }) => filter),
           from,
           to,
-          limit: 10_000,
+          limit: 1_000,
         });
 
         yield events;
