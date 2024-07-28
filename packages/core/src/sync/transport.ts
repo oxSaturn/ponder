@@ -1,4 +1,4 @@
-import type { SyncStore } from "@/sync-store/store.js";
+import type { SyncStore } from "@/sync-store/index.js";
 import { toLowerCase } from "@/utils/lowercase.js";
 import type { RequestQueue } from "@/utils/requestQueue.js";
 import type { Address, Hex, Transport } from "viem";

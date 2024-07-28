@@ -7,8 +7,6 @@ import {
   type LogAddressFilter,
   type LogFilter,
   getFilterId,
-  isBlockFilter,
-  isLogFilter,
 } from "@/sync/filter.js";
 import type {
   SyncBlock,
@@ -18,37 +16,35 @@ import type {
 } from "@/sync/index.js";
 import { encodeAsText } from "@/utils/encoding.js";
 import { type Interval, intervalUnion } from "@/utils/interval.js";
+import { never } from "@/utils/never.js";
 import { type SelectQueryBuilder, sql as ksql } from "kysely";
 import type { Address, Hash, Hex } from "viem";
 import {
   type PonderSyncSchema,
   formatBlock,
-  formatHex,
   formatLog,
   formatTransaction,
   formatTransactionReceipt,
 } from "./encoding.js";
 
-// TODO(kyle) filter includes chainId
+// TODO(kyle) do nothing on conflict
+// TODO(kyle) handle empty
 
 export type SyncStore = {
   insertAddress(
     filter: AddressFilter,
     address: Address,
     blockNumber: bigint,
-    chainId: number,
   ): Promise<void>;
-  getAddresses(filter: AddressFilter, chainId: number): Promise<Address[]>;
-  insertInterval<type extends "raw" | "event" | "address">(
+  getAddresses(filter: AddressFilter): Promise<Address[]>;
+  insertInterval<type extends "event" | "address">(
     filterType: type,
     filter: type extends "address" ? AddressFilter : Filter,
     interval: Interval,
-    chainId: number,
   ): Promise<void>;
-  getIntervals<type extends "raw" | "event" | "address">(
+  getIntervals<type extends "event" | "address">(
     filterType: type,
     filter: type extends "address" ? AddressFilter : Filter,
-    chainId: number,
   ): Promise<Interval[]>;
   insertLogs(logs: SyncLog[], chainId: number): Promise<void>;
   insertBlock(block: SyncBlock, chainId: number): Promise<void>;
@@ -63,18 +59,12 @@ export type SyncStore = {
     chainId: number,
   ): Promise<void>;
   hasTransactionReceipt(hash: Hash, chainId: number): Promise<boolean>;
-  populateEvents(args: {
-    filters: Filter[];
-    chainId: number;
-    fromBlock: bigint;
-    toBlock: bigint;
-  }): Promise<void>;
+  populateEvents(filter: Filter, interval: Interval): Promise<void>;
   /** Returns an ordered list of events based on the provided sources and pagination arguments. */
   getEvents(args: {
     filters: Filter[];
-    chainId?: number;
-    after: string;
-    before: string;
+    from: string;
+    to: string;
     limit: number;
   }): Promise<{ events: RawEvent[]; cursor: string }>;
   deleteSync(fromBlock: bigint, chainId: number): Promise<void>;
@@ -90,42 +80,42 @@ export const createSyncStore = ({
   sql: "sqlite" | "postgres";
   db: HeadlessKysely<PonderSyncSchema>;
 }): SyncStore => ({
-  insertAddress: async (filter, address, blockNumber, chainId) =>
+  insertAddress: async (filter, address, blockNumber) =>
     db.wrap({ method: "insertAddress" }, async () => {
       await db
         .insertInto("address")
         .values({
           filter_id: getFilterId("address", filter),
-          chain_id: chainId,
+          chain_id: filter.chainId,
           block_number:
             sql === "sqlite" ? encodeAsText(blockNumber) : blockNumber,
           address,
         })
         .execute();
     }),
-  getAddresses: async (filter, chainId) =>
+  getAddresses: async (filter) =>
     db.wrap({ method: "getAddresses" }, async () => {
       return await db
         .selectFrom("address")
         .select("address")
-        .where("chain_id", "=", chainId)
+        .where("chain_id", "=", filter.chainId)
         .where("filter_id", "=", getFilterId("address", filter))
         .execute()
         .then((result) => result.map(({ address }) => address));
     }),
-  insertInterval: async (type, filter, interval, chainId) =>
+  insertInterval: async (type, filter, interval) =>
     db.wrap({ method: "insertInterval" }, async () => {
       await db
         .insertInto("interval")
         .values({
           filter_id: getFilterId(type, filter),
-          chain_id: chainId,
+          chain_id: filter.chainId,
           from: BigInt(interval[0]),
           to: BigInt(interval[1]),
         })
         .execute();
     }),
-  getIntervals: async (type, filter, chainId) =>
+  getIntervals: async (type, filter) =>
     db.wrap({ method: "getIntervals" }, () =>
       db.transaction().execute(async (tx) => {
         const filterId = getFilterId(type, filter);
@@ -143,7 +133,7 @@ export const createSyncStore = ({
         if (mergedIntervals.length === 0) return [];
 
         const mergedIntervalRows = mergedIntervals.map(([from, to]) => ({
-          chain_id: chainId,
+          chain_id: filter.chainId,
           filter_id: filterId,
           from: BigInt(from),
           to: BigInt(to),
@@ -156,9 +146,13 @@ export const createSyncStore = ({
     ),
   insertLogs: async (logs, chainId) =>
     db.wrap({ method: "insertLogs" }, async () => {
+      if (logs.length === 0) return;
       await db
         .insertInto("log")
         .values(logs.map((log) => formatLog(log, chainId, sql)))
+        .onConflict((oc) =>
+          oc.columns(["block_hash", "log_index", "chain_id"]).doNothing(),
+        )
         .execute();
     }),
   insertBlock: async (block, chainId) =>
@@ -166,6 +160,7 @@ export const createSyncStore = ({
       await db
         .insertInto("block")
         .values(formatBlock(block, chainId, sql))
+        .onConflict((oc) => oc.columns(["hash", "chain_id"]).doNothing())
         .execute();
     }),
   hasBlock: async (hash, chainId) =>
@@ -183,6 +178,7 @@ export const createSyncStore = ({
       await db
         .insertInto("transaction")
         .values(formatTransaction(transaction, chainId, sql))
+        .onConflict((oc) => oc.columns(["hash", "chain_id"]).doNothing())
         .execute();
     }),
   hasTransaction: async (hash, chainId) =>
@@ -212,7 +208,7 @@ export const createSyncStore = ({
         .executeTakeFirst()
         .then((result) => result !== undefined);
     }),
-  populateEvents: async ({ filters, chainId, fromBlock, toBlock }) => {
+  populateEvents: async (filter, interval) => {
     const childAddressSQL = (
       childAddressLocation: LogAddressFilter["childAddressLocation"],
     ) => {
@@ -248,7 +244,7 @@ export const createSyncStore = ({
             .select(
               childAddressSQL(address.childAddressLocation).as("childAddress"),
             )
-            .where("chain_id", "=", chainId)
+            .where("chain_id", "=", address.chainId)
             .where("topic0", "=", address.eventSelector)
             .$call((_qb) => addressSQL(_qb, address.address)),
         ) as T;
@@ -268,198 +264,235 @@ export const createSyncStore = ({
       .where("hash", "=", ksql.ref("log.transaction_hash"))
       .compile().sql;
 
-    for (const logFilter of filters.filter(isLogFilter)) {
-      await db.wrap({ method: "populateEvents" }, async () => {
-        const subquery = db
-          .selectFrom("log")
-          .select([
-            // TODO(kyle) postgres uses ::[type] operator
-            ksql
-              .raw(`'${getFilterId("event", logFilter)}'`)
-              .as("filter_id"),
-            ksql
-              .raw(`
+    await db.wrap({ method: "populateEvents" }, async () => {
+      switch (filter.type) {
+        case "log":
+          {
+            const subquery = db
+              .selectFrom("log")
+              .select([
+                // TODO(kyle) postgres uses ::[type] operator
+                ksql
+                  .raw(`'${getFilterId("event", filter)}'`)
+                  .as("filter_id"),
+                ksql
+                  .raw(`
 substr((${blockTimestampQuery}), -10, 10) ||
 substr('0000000000000000' || chain_id, -16, 16) ||
 substr(block_number, -16, 16) ||
 substr('0000000000000000' || (${transactionIndexQuery}), -16, 16) ||
 '5' ||
 substr('0000000000000000' || log_index, -16, 16)`)
-              .as("checkpoint"),
-            "chain_id",
-            "block_number",
-            "block_hash",
-            "log_index",
-            "transaction_hash",
-          ])
-          .where("chain_id", "=", chainId)
-          .$if(logFilter.topics !== undefined, (qb) => {
-            for (const idx_ of [0, 1, 2, 3]) {
-              const idx = idx_ as 0 | 1 | 2 | 3;
-              // If it's an array of length 1, collapse it.
-              const raw = logFilter.topics![idx] ?? null;
-              if (raw === null) continue;
-              const topic =
-                Array.isArray(raw) && raw.length === 1 ? raw[0]! : raw;
-              if (Array.isArray(topic)) {
-                qb = qb.where((eb) =>
-                  eb.or(topic.map((t) => eb(`log.topic${idx}`, "=", t))),
-                );
-              } else {
-                qb = qb.where(`log.topic${idx}`, "=", topic);
-              }
-            }
-            return qb;
-          })
-          .$call((qb) => addressSQL(qb, logFilter.address))
-          .$if(logFilter.fromBlock !== undefined, (qb) =>
-            qb.where(
-              "block_number",
-              ">=",
-              formatHex(sql, logFilter.fromBlock!),
-            ),
-          )
-          .$if(logFilter.toBlock !== undefined, (qb) =>
-            qb.where("block_number", "<=", formatHex(sql, logFilter.toBlock!)),
-          )
-          .where(
-            "block_number",
-            ">=",
-            sql === "sqlite" ? encodeAsText(fromBlock) : fromBlock,
-          )
-          .where(
-            "block_number",
-            "<=",
-            sql === "sqlite" ? encodeAsText(toBlock) : toBlock,
-          );
+                  .as("checkpoint"),
+                "chain_id",
+                "block_number",
+                "block_hash",
+                "log_index",
+                "transaction_hash",
+              ])
+              .where("chain_id", "=", filter.chainId)
+              .$if(filter.topics !== undefined, (qb) => {
+                for (const idx_ of [0, 1, 2, 3]) {
+                  const idx = idx_ as 0 | 1 | 2 | 3;
+                  // If it's an array of length 1, collapse it.
+                  const raw = filter.topics![idx] ?? null;
+                  if (raw === null) continue;
+                  const topic =
+                    Array.isArray(raw) && raw.length === 1 ? raw[0]! : raw;
+                  if (Array.isArray(topic)) {
+                    qb = qb.where((eb) =>
+                      eb.or(topic.map((t) => eb(`log.topic${idx}`, "=", t))),
+                    );
+                  } else {
+                    qb = qb.where(`log.topic${idx}`, "=", topic);
+                  }
+                }
+                return qb;
+              })
+              .$call((qb) => addressSQL(qb, filter.address))
+              .$if(filter.fromBlock !== undefined, (qb) =>
+                qb.where(
+                  "block_number",
+                  ">=",
+                  sql === "sqlite"
+                    ? encodeAsText(filter.fromBlock!)
+                    : BigInt(filter.fromBlock!),
+                ),
+              )
+              .$if(filter.toBlock !== undefined, (qb) =>
+                qb.where(
+                  "block_number",
+                  "<=",
+                  sql === "sqlite"
+                    ? encodeAsText(filter.toBlock!)
+                    : BigInt(filter.toBlock!),
+                ),
+              )
+              .where(
+                "block_number",
+                ">=",
+                sql === "sqlite"
+                  ? encodeAsText(interval[0])
+                  : BigInt(interval[0]),
+              )
+              .where(
+                "block_number",
+                "<=",
+                sql === "sqlite"
+                  ? encodeAsText(interval[1])
+                  : BigInt(interval[1]),
+              );
 
-        await db
-          .insertInto("event")
-          .columns([
-            "filter_id",
-            "checkpoint",
-            "chain_id",
-            "block_number",
-            "block_hash",
-            "log_index",
-            "transaction_hash",
-          ])
-          .expression(subquery)
-          .onConflict((oc) =>
-            oc.columns(["filter_id", "checkpoint", "chain_id"]).doNothing(),
-          )
-          .execute();
-      });
-    }
+            await db
+              .insertInto("event")
+              .columns([
+                "filter_id",
+                "checkpoint",
+                "chain_id",
+                "block_number",
+                "block_hash",
+                "log_index",
+                "transaction_hash",
+              ])
+              .expression(subquery)
+              .onConflict((oc) =>
+                oc.columns(["filter_id", "checkpoint", "chain_id"]).doNothing(),
+              )
+              .execute();
+          }
+          break;
 
-    for (const blockFilter of filters.filter(isBlockFilter)) {
-      const subquery = db
-        .selectFrom("block")
-        .select([
-          // TODO(kyle) postgres uses ::[type] operator
-          ksql
-            .raw(`'${getFilterId("event", blockFilter)}'`)
-            .as("filter_id"),
-          ksql
-            .raw(`
+        case "block":
+          {
+            const subquery = db
+              .selectFrom("block")
+              .select([
+                // TODO(kyle) postgres uses ::[type] operator
+                ksql
+                  .raw(`'${getFilterId("event", filter)}'`)
+                  .as("filter_id"),
+                ksql
+                  .raw(`
 substr(timestamp, -10, 10) ||
 substr('0000000000000000' || chain_id, -16, 16) ||
 substr(number, -16, 16) ||
 '9999999999999999' ||
 '5' ||
 '0000000000000000'`)
-            .as("checkpoint"),
-          "chain_id",
-          "number as block_number",
-          "hash as block_hash",
-        ])
-        .where("chain_id", "=", chainId)
-        .$if(
-          blockFilter !== undefined && blockFilter.interval !== undefined,
-          (qb) =>
-            qb.where(
-              ksql`(number - ${blockFilter.offset}) % ${blockFilter.interval} = 0`,
-            ),
-        )
-        .$if(blockFilter.fromBlock !== undefined, (qb) =>
-          qb.where("number", ">=", formatHex(sql, blockFilter.fromBlock!)),
-        )
-        .$if(blockFilter.toBlock !== undefined, (qb) =>
-          qb.where("number", "<=", formatHex(sql, blockFilter.toBlock!)),
-        )
-        .where(
-          "number",
-          ">=",
-          sql === "sqlite" ? encodeAsText(fromBlock) : fromBlock,
-        )
-        .where(
-          "number",
-          "<=",
-          sql === "sqlite" ? encodeAsText(toBlock) : toBlock,
-        );
+                  .as("checkpoint"),
+                "chain_id",
+                "number as block_number",
+                "hash as block_hash",
+              ])
+              .where("chain_id", "=", filter.chainId)
+              .$if(
+                filter !== undefined && filter.interval !== undefined,
+                (qb) =>
+                  qb.where(
+                    ksql`(number - ${filter.offset}) % ${filter.interval} = 0`,
+                  ),
+              )
+              .$if(filter.fromBlock !== undefined, (qb) =>
+                qb.where(
+                  "number",
+                  ">=",
+                  sql === "sqlite"
+                    ? encodeAsText(filter.fromBlock!)
+                    : BigInt(filter.fromBlock!),
+                ),
+              )
+              .$if(filter.toBlock !== undefined, (qb) =>
+                qb.where(
+                  "number",
+                  "<=",
+                  sql === "sqlite"
+                    ? encodeAsText(filter.toBlock!)
+                    : BigInt(filter.toBlock!),
+                ),
+              )
+              .where(
+                "number",
+                ">=",
+                sql === "sqlite"
+                  ? encodeAsText(interval[0])
+                  : BigInt(interval[0]),
+              )
+              .where(
+                "number",
+                "<=",
+                sql === "sqlite"
+                  ? encodeAsText(interval[1])
+                  : BigInt(interval[1]),
+              );
 
-      await db
-        .insertInto("event")
-        .columns([
-          "filter_id",
-          "checkpoint",
-          "chain_id",
-          "block_number",
-          "block_hash",
-        ])
-        .expression(subquery)
-        .onConflict((oc) =>
-          oc.columns(["filter_id", "checkpoint", "chain_id"]).doNothing(),
-        )
-        .execute();
-    }
+            await db
+              .insertInto("event")
+              .columns([
+                "filter_id",
+                "checkpoint",
+                "chain_id",
+                "block_number",
+                "block_hash",
+              ])
+              .expression(subquery)
+              .onConflict((oc) =>
+                oc.columns(["filter_id", "checkpoint", "chain_id"]).doNothing(),
+              )
+              .execute();
+          }
+          break;
+
+        default:
+          never(filter);
+      }
+    });
   },
-  getEvents: async ({ filters, chainId, after, before, limit }) => {
+  getEvents: async ({ filters, from, to, limit }) => {
+    const start = performance.now();
     const events = await db.wrap({ method: "getEvents" }, async () => {
       return await db
         .selectFrom("event")
-        .innerJoin("block", "block.hash", "event.block_hash")
-        .leftJoin("log", (join) =>
-          join.on((eb) =>
-            eb.and([
-              eb("event.block_hash", "=", ksql.ref("log.block_hash")),
-              eb("event.log_index", "=", ksql.ref("log.log_index")),
-            ]),
-          ),
-        )
-        .leftJoin("transaction", "transaction.hash", "event.transaction_hash")
-        .leftJoin(
-          "transaction_receipt",
-          "transaction_receipt.hash",
-          "event.transaction_hash",
-        )
+        // .innerJoin("block", "block.hash", "event.block_hash")
+        // .leftJoin("log", (join) =>
+        //   join.on((eb) =>
+        //     eb.and([
+        //       eb("event.block_hash", "=", ksql.ref("log.block_hash")),
+        //       eb("event.log_index", "=", ksql.ref("log.log_index")),
+        //     ]),
+        //   ),
+        // )
+        // .leftJoin("transaction", "transaction.hash", "event.transaction_hash")
+        // .leftJoin(
+        //   "transaction_receipt",
+        //   "transaction_receipt.hash",
+        //   "event.transaction_hash",
+        // )
         .select([
           "event.checkpoint",
           "event.filter_id",
-          "block.body as block",
-          "log.body as log",
-          "transaction.body as transaction",
-          "transaction_receipt.body as transaction_receipt",
+          // "block.body as block",
+          // "log.body as log",
+          // "transaction.body as transaction",
+          // "transaction_receipt.body as transaction_receipt",
         ])
         .where(
           "event.filter_id",
           "in",
           filters.map((filter) => getFilterId("event", filter)),
         )
-        .$if(chainId !== undefined, (qb) =>
-          qb.where("event.chain_id", "=", chainId!),
-        )
-        .where("event.checkpoint", ">", after)
-        .where("event.checkpoint", "<=", before)
+        .where("event.checkpoint", ">", from)
+        .where("event.checkpoint", "<=", to)
         .orderBy("event.checkpoint", "asc")
         .orderBy("event.filter_id", "asc")
         .limit(limit)
         .execute();
     });
 
+    console.log(performance.now() - start);
+
     let cursor: string;
     if (events.length !== limit) {
-      cursor = before;
+      cursor = to;
     } else {
       cursor = events[events.length - 1]!.checkpoint;
     }

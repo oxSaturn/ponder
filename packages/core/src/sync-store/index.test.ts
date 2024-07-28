@@ -20,7 +20,6 @@ import { toLowerCase } from "@/utils/lowercase.js";
 import {
   getAbiItem,
   getEventSelector,
-  hexToBigInt,
   hexToNumber,
   padHex,
   zeroAddress,
@@ -109,14 +108,15 @@ test("getAddresses()", async (context) => {
 
   const addressFilter = {
     type: "log",
+    chainId: 1,
     address: zeroAddress,
     eventSelector: "0xeventselector",
     childAddressLocation: "topic1",
   } as const;
 
-  await syncStore.insertAddress(addressFilter, "0xa", 0n, 1);
+  await syncStore.insertAddress(addressFilter, "0xa", 0n);
 
-  const addresses = await syncStore.getAddresses(addressFilter, 1);
+  const addresses = await syncStore.getAddresses(addressFilter);
 
   expect(addresses).toHaveLength(1);
   expect(addresses[0]).toBe("0xa");
@@ -135,17 +135,18 @@ test("getAddressess() with no matches", async (context) => {
 
   const addressFilter = {
     type: "log",
+    chainId: 1,
     address: zeroAddress,
     eventSelector: "0xeventselector",
     childAddressLocation: "topic1",
   } as const;
 
-  await syncStore.insertAddress(addressFilter, "0xa", 0n, 1);
+  await syncStore.insertAddress(addressFilter, "0xa", 0n);
 
-  const addresses = await syncStore.getAddresses(
-    { ...addressFilter, childAddressLocation: "topic2" },
-    1,
-  );
+  const addresses = await syncStore.getAddresses({
+    ...addressFilter,
+    childAddressLocation: "topic2",
+  });
 
   expect(addresses).toHaveLength(0);
 
@@ -344,14 +345,9 @@ test("populateEvents() creates events", async (context) => {
   await syncStore.insertBlock(rpcData.block3.block, 1);
   await syncStore.insertTransaction(rpcData.block3.transactions[0], 1);
 
-  const filter = { type: "log" } satisfies LogFilter;
+  const filter = { type: "log", chainId: 1 } satisfies LogFilter;
 
-  await syncStore.populateEvents({
-    filters: [filter],
-    chainId: 1,
-    fromBlock: hexToBigInt(rpcData.block3.block.number),
-    toBlock: hexToBigInt(rpcData.block3.block.number),
-  });
+  await syncStore.populateEvents(filter, [3, 3]);
 
   const events = await database.syncDb
     .selectFrom("event")
@@ -388,15 +384,11 @@ test("populateEvents() handles log filter logic", async (context) => {
 
   const filter = {
     type: "log",
+    chainId: 1,
     topics: [transferSelector, toLowerCase(padHex(ALICE)), null, null],
   } satisfies LogFilter;
 
-  await syncStore.populateEvents({
-    filters: [filter],
-    chainId: 1,
-    fromBlock: hexToBigInt(rpcData.block2.block.number),
-    toBlock: hexToBigInt(rpcData.block3.block.number),
-  });
+  await syncStore.populateEvents(filter, [2, 2]);
 
   const events = await database.syncDb
     .selectFrom("event")
@@ -427,16 +419,9 @@ test("populateEvents() handles block bounds", async (context) => {
   await syncStore.insertBlock(rpcData.block3.block, 1);
   await syncStore.insertTransaction(rpcData.block3.transactions[0], 1);
 
-  const filter = {
-    type: "log",
-  } satisfies LogFilter;
+  const filter = { type: "log", chainId: 1 } satisfies LogFilter;
 
-  await syncStore.populateEvents({
-    filters: [filter],
-    chainId: 1,
-    fromBlock: hexToBigInt(rpcData.block3.block.number),
-    toBlock: hexToBigInt(rpcData.block3.block.number),
-  });
+  await syncStore.populateEvents(filter, [3, 3]);
 
   const events = await database.syncDb
     .selectFrom("event")
@@ -462,14 +447,9 @@ test("populateEvents() computes log filter checkpoint", async (context) => {
   await syncStore.insertBlock(rpcData.block3.block, 1);
   await syncStore.insertTransaction(rpcData.block3.transactions[0], 1);
 
-  const filter = { type: "log" } satisfies LogFilter;
+  const filter = { type: "log", chainId: 1 } satisfies LogFilter;
 
-  await syncStore.populateEvents({
-    filters: [filter],
-    chainId: 1,
-    fromBlock: hexToBigInt(rpcData.block3.block.number),
-    toBlock: hexToBigInt(rpcData.block3.block.number),
-  });
+  await syncStore.populateEvents(filter, [3, 3]);
 
   const { checkpoint } = await database.syncDb
     .selectFrom("event")
@@ -509,20 +489,17 @@ test("populateEvents() handles log address filters", async (context) => {
 
   const filter = {
     type: "log",
+    chainId: 1,
     address: {
       type: "log",
+      chainId: 1,
       address: context.factory.address,
       eventSelector,
       childAddressLocation: "topic1",
     },
   } satisfies LogFilter;
 
-  await syncStore.populateEvents({
-    filters: [filter],
-    chainId: 1,
-    fromBlock: hexToBigInt(rpcData.block4.block.number),
-    toBlock: hexToBigInt(rpcData.block4.block.number),
-  });
+  await syncStore.populateEvents(filter, [4, 4]);
 
   const events = await database.syncDb
     .selectFrom("event")
@@ -550,16 +527,12 @@ test("populateEvents() handles block filter logic", async (context) => {
 
   const filter = {
     type: "block",
+    chainId: 1,
     offset: 1,
     interval: 2,
   } satisfies BlockFilter;
 
-  await syncStore.populateEvents({
-    filters: [filter],
-    chainId: 1,
-    fromBlock: hexToBigInt(rpcData.block2.block.number),
-    toBlock: hexToBigInt(rpcData.block4.block.number),
-  });
+  await syncStore.populateEvents(filter, [2, 4]);
 
   const events = await database.syncDb
     .selectFrom("event")
@@ -585,21 +558,11 @@ test("populateEvents() handles conflicts", async (context) => {
   await syncStore.insertBlock(rpcData.block3.block, 1);
   await syncStore.insertTransaction(rpcData.block3.transactions[0], 1);
 
-  const filter = { type: "log" } satisfies LogFilter;
+  const filter = { type: "log", chainId: 1 } satisfies LogFilter;
 
-  await syncStore.populateEvents({
-    filters: [filter],
-    chainId: 1,
-    fromBlock: hexToBigInt(rpcData.block3.block.number),
-    toBlock: hexToBigInt(rpcData.block3.block.number),
-  });
+  await syncStore.populateEvents(filter, [3, 3]);
 
-  await syncStore.populateEvents({
-    filters: [filter],
-    chainId: 1,
-    fromBlock: hexToBigInt(rpcData.block3.block.number),
-    toBlock: hexToBigInt(rpcData.block3.block.number),
-  });
+  await syncStore.populateEvents(filter, [3, 3]);
 
   const events = await database.syncDb
     .selectFrom("event")
@@ -627,18 +590,12 @@ test("getEvents() returns events", async (context) => {
   await syncStore.insertBlock(rpcData.block3.block, 1);
   await syncStore.insertTransaction(rpcData.block3.transactions[0], 1);
 
-  const filter = { type: "log" } satisfies LogFilter;
+  const filter = { type: "log", chainId: 1 } satisfies LogFilter;
 
-  await syncStore.populateEvents({
-    filters: [filter],
-    chainId: 1,
-    fromBlock: hexToBigInt(rpcData.block3.block.number),
-    toBlock: hexToBigInt(rpcData.block3.block.number),
-  });
+  await syncStore.populateEvents(filter, [3, 3]);
 
   const events = await syncStore.getEvents({
     filters: [filter],
-    chainId: 1,
     before: encodeCheckpoint(maxCheckpoint),
     after: encodeCheckpoint(zeroCheckpoint),
     limit: 10,

@@ -17,7 +17,7 @@ import { type SyncBlock, _eth_getBlockByNumber } from "./index.js";
 import type { Source } from "./source.js";
 
 export type Sync = {
-  getEvents(sources: Source[]): AsyncGenerator<RawEvent[]>;
+  getEvents(): AsyncGenerator<RawEvent[]>;
 };
 
 type CreateSyncParameters = {
@@ -29,6 +29,7 @@ type CreateSyncParameters = {
 
 type LocalSync = {
   startBlock: SyncBlock;
+  latestBlock: SyncBlock | undefined;
   finalizedBlock: SyncBlock;
   sync(): Promise<void>;
   requestQueue: RequestQueue;
@@ -46,23 +47,17 @@ const createLocalSync = async (args: {
   });
 
   /** Earliest `startBlock` among all `filters` */
-  const start = Math.min(
-    ...args.filters.map((f) => (f.fromBlock ? hexToNumber(f.fromBlock) : 0)),
-  );
+  const start = Math.min(...args.filters.map((f) => f.fromBlock ?? 0));
+  // /** `true` if all `filters` have a defined end block */
+  // const isEndBlockSet = args.filters.every((f) => f.toBlock !== undefined);
+  // /** `true` if all `filters` have a defined end block in the finalized range */
+  // const isEndBlockFinalized;
 
   const [remoteChainId, startBlock, latestBlock] = await Promise.all([
     requestQueue.request({ method: "eth_chainId" }),
     _eth_getBlockByNumber({ requestQueue }, { blockNumber: start }),
     _eth_getBlockByNumber({ requestQueue }, { blockTag: "latest" }),
   ]);
-
-  const finalizedBlock = await _eth_getBlockByNumber(
-    { requestQueue },
-    {
-      blockNumber:
-        hexToNumber(latestBlock.number) - args.network.finalityBlockCount,
-    },
-  );
 
   // ...
   if (hexToNumber(remoteChainId) !== args.network.chain.id) {
@@ -71,6 +66,18 @@ const createLocalSync = async (args: {
       msg: `Remote chain ID (${remoteChainId}) does not match configured chain ID (${args.network.chainId}) for network "${args.network.name}"`,
     });
   }
+
+  const finalizedBlockNumber = Math.max(
+    0,
+    hexToNumber(latestBlock.number) - args.network.finalityBlockCount,
+  );
+
+  const finalizedBlock = await _eth_getBlockByNumber(
+    { requestQueue },
+    {
+      blockNumber: finalizedBlockNumber,
+    },
+  );
 
   const historicalSync = await createHistoricalSync({
     filters: args.filters,
@@ -81,17 +88,25 @@ const createLocalSync = async (args: {
 
   /** ... */
   // TODO(kyle) dynamic, use diagnostics
-  const blocksPerEvent = 2 * args.filters.length;
-  let fromBlock: number;
+  const blocksPerEvent = 0.25 / args.filters.length;
+  let fromBlock = hexToNumber(startBlock.number);
 
   return {
     startBlock,
+    get latestBlock() {
+      // [explain why]
+      if (fromBlock === hexToNumber(finalizedBlock.number))
+        return finalizedBlock;
+      return historicalSync.latestBlock;
+    },
     finalizedBlock,
     async sync() {
-      // TODO(kyle) make sure chain doesn't sync passed finalized
       const interval: Interval = [
         fromBlock,
-        fromBlock + blocksPerEvent * 10_000,
+        Math.min(
+          fromBlock + blocksPerEvent * 1_000,
+          hexToNumber(finalizedBlock.number),
+        ),
       ];
       fromBlock = interval[1];
 
@@ -102,16 +117,6 @@ const createLocalSync = async (args: {
 };
 
 export const createSync = async (args: CreateSyncParameters): Promise<Sync> => {
-  /** Earliest `startBlock` among all `filters` */
-  // const start = Math.min(
-  //   ...args.filters.map((f) => (f.fromBlock ? hexToNumber(f.fromBlock) : 0)),
-  // );
-
-  // /** `true` if all `filters` have a defined end block */
-  // const isEndBlockSet = args.filters.every((f) => f.toBlock !== undefined);
-  // /** `true` if all `filters` have a defined end block in the finalized range */
-  // const isEndBlockFinalized;
-
   const localSyncs = new Map<Chain, LocalSync>();
 
   await Promise.all(
@@ -128,12 +133,17 @@ export const createSync = async (args: CreateSyncParameters): Promise<Sync> => {
     }),
   );
 
-  /** Returns the minimum checkpoint across all chains. */
-  const getChainsCheckpoint = (tag: "start" | "finalized") => {
+  /**
+   * Returns the minimum checkpoint across all chains.
+   * Note: `historicalSync.latestBlock` is assumed to be defined if
+   * this function is called with `tag` == "latest".
+   */
+  const getChainsCheckpoint = (
+    tag: "start" | "latest" | "finalized",
+  ): string => {
     const checkpoints = args.networks.map((network) => {
-      const block = localSyncs.get(network.chain)![
-        tag === "start" ? "startBlock" : "finalizedBlock"
-      ];
+      const localSync = localSyncs.get(network.chain)!;
+      const block = localSync[`${tag}Block`]!;
 
       return {
         // [inclusivity]
@@ -147,38 +157,59 @@ export const createSync = async (args: CreateSyncParameters): Promise<Sync> => {
   };
 
   // TODO(kyle) programmatically refetch finalized blocks to avoid exiting too early
-  // TODO(kyle) different implementations depending on onmichain vs multichain
-  async function* getEvents() {
-    let after = getChainsCheckpoint("start");
+
+  /**
+   * Omnichain `getEvents`
+   *
+   * Retrieve all events across all networks ordered by `checkpoint`
+   * up to the minimum finalized checkpoint.
+   *
+   * Note: `syncStore.getEvents` is used to order between multiple
+   * networks. This approach is not future proof.
+   */
+  async function* getEventsOmni() {
+    const start = getChainsCheckpoint("start");
+    const end = getChainsCheckpoint("finalized");
+
+    // ...
+    let from = start;
 
     while (true) {
-      // sync each chain
-      await Promise.all(
-        args.networks.map(({ chain }) => localSyncs.get(chain)!.sync()),
+      const _localSyncs = args.networks.map(
+        ({ chain }) => localSyncs.get(chain)!,
       );
+      // sync each chain
+      await Promise.all(_localSyncs.map((l) => l.sync()));
+      // TODO(kyle) check against endBlocks
+      if (_localSyncs.some((l) => l.latestBlock === undefined)) continue;
+      const to = getChainsCheckpoint("latest");
 
-      // TODO(kyle) this should use the latest processed block for each network
-      const before = getChainsCheckpoint("finalized");
-
-      // TODO(kyle) may be advantageous to self-limit `before`
-
+      // TODO(kyle) may be more performant to self-limit `before`
       while (true) {
+        if (from === to) break;
         const { events, cursor } = await args.syncStore.getEvents({
           filters: args.sources.map(({ filter }) => filter),
-          after,
-          before,
+          from,
+          to,
           limit: 10_000,
         });
 
         yield events;
-
-        if (cursor === before) break;
-        after = cursor;
+        from = cursor;
       }
+      if (to >= end) break;
     }
   }
 
+  /**
+   * Multichain `getEvents`
+   *
+   * Retrieve all events up to the finalized checkpoint for each
+   * network ordered by `checkpoint`.
+   */
+  // async function* getEventsMulti()
+
   return {
-    getEvents,
+    getEvents: getEventsOmni,
   };
 };

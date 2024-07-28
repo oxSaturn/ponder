@@ -61,6 +61,7 @@ test("createHistoricalSync()", async (context) => {
 
   const filter = {
     type: "log",
+    chainId: 1,
     address: context.sources[0].criteria.address,
     topics: context.sources[0].criteria.topics,
   } satisfies LogFilter;
@@ -70,6 +71,7 @@ test("createHistoricalSync()", async (context) => {
     filters: [filter],
     syncStore,
     requestQueue: context.requestQueues[0],
+    endBlock: 4n,
   });
 
   expect(historicalSync).toBeDefined();
@@ -82,6 +84,7 @@ test("sync() with log filter", async (context) => {
 
   const filter = {
     type: "log",
+    chainId: 1,
     address: context.sources[0].criteria.address,
     topics: context.sources[0].criteria.topics,
   } satisfies LogFilter;
@@ -91,9 +94,57 @@ test("sync() with log filter", async (context) => {
     filters: [filter],
     syncStore,
     requestQueue: context.requestQueues[0],
+    endBlock: 4n,
   });
 
-  await historicalSync.sync(0n, 4n);
+  await historicalSync.sync([0, 4]);
+
+  const events = await database.syncDb
+    .selectFrom("event")
+    .selectAll()
+    .execute();
+
+  expect(events).toHaveLength(2);
+
+  const intervals = await database.syncDb
+    .selectFrom("interval")
+    .selectAll()
+    .execute();
+
+  expect(intervals).toHaveLength(1);
+
+  await cleanup();
+});
+
+test("sync() with cache hit", async (context) => {
+  const { cleanup, syncStore, database } = await setupDatabase(context);
+
+  const filter = {
+    type: "log",
+    chainId: 1,
+    address: context.sources[0].criteria.address,
+    topics: context.sources[0].criteria.topics,
+  } satisfies LogFilter;
+
+  let historicalSync = await createHistoricalSync({
+    chain: context.networks[0].chain,
+    filters: [filter],
+    syncStore,
+    requestQueue: context.requestQueues[0],
+    endBlock: 4n,
+  });
+  await historicalSync.sync([0, 4]);
+
+  // re-instantiate `historicalSync` to reset the cached intervals
+
+  historicalSync = await createHistoricalSync({
+    chain: context.networks[0].chain,
+    filters: [filter],
+    syncStore,
+    requestQueue: context.requestQueues[0],
+    endBlock: 4n,
+  });
+  await historicalSync.sync([0, 4]);
 
   const events = await database.syncDb
     .selectFrom("event")

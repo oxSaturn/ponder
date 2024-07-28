@@ -25,6 +25,7 @@ import {
   sourceIsCallTrace,
   sourceIsFactoryCallTrace,
 } from "@/config/sources.js";
+import type { Source } from "@/sync/source.js";
 import { chains } from "@/utils/chains.js";
 import { toLowerCase } from "@/utils/lowercase.js";
 import { dedupe } from "@ponder/common";
@@ -317,12 +318,7 @@ export async function buildConfigAndIndexingFunctions({
     logs.push({ level: "warn", msg: "No indexing functions were registered." });
   }
 
-  const contractSources: (
-    | LogSource
-    | FactoryLogSource
-    | CallTraceSource
-    | FactoryCallTraceSource
-  )[] = Object.entries(config.contracts ?? {})
+  const contractSources: Source[] = Object.entries(config.contracts ?? {})
     // First, apply any network-specific overrides and flatten the result.
     .flatMap(([contractName, contract]) => {
       if (contract.network === null || contract.network === undefined) {
@@ -423,293 +419,290 @@ export async function buildConfigAndIndexingFunctions({
         });
     })
     // Second, build and validate the factory or log source.
-    .flatMap(
-      (
-        rawContract,
-      ): (
-        | LogSource
-        | FactoryLogSource
-        | CallTraceSource
-        | FactoryCallTraceSource
-      )[] => {
-        const network = networks.find(
-          (n) => n.name === rawContract.networkName,
+    .flatMap((rawContract): Source[] => {
+      const network = networks.find((n) => n.name === rawContract.networkName);
+      if (!network) {
+        throw new Error(
+          `Validation failed: Invalid network for contract '${
+            rawContract.contractName
+          }'. Got '${rawContract.networkName}', expected one of [${networks
+            .map((n) => `'${n.name}'`)
+            .join(", ")}].`,
         );
-        if (!network) {
+      }
+
+      // Get indexing function that were registered for this contract
+      const registeredLogEvents: string[] = [];
+      const registeredCallTraceEvents: string[] = [];
+      for (const eventName of Object.keys(indexingFunctions)) {
+        // log event
+        if (eventName.includes(":")) {
+          const [logContractName, logEventName] = eventName.split(":") as [
+            string,
+            string,
+          ];
+          if (
+            logContractName === rawContract.contractName &&
+            logEventName !== "setup"
+          ) {
+            registeredLogEvents.push(logEventName);
+          }
+        }
+
+        // call trace event
+        if (eventName.includes(".")) {
+          const [functionContractName, functionName] = eventName.split(".") as [
+            string,
+            string,
+          ];
+          if (functionContractName === rawContract.contractName) {
+            registeredCallTraceEvents.push(functionName);
+          }
+        }
+      }
+
+      // Note: This can probably throw for invalid ABIs. Consider adding explicit ABI validation before this line.
+      const abiEvents = buildAbiEvents({ abi: rawContract.abi });
+      const abiFunctions = buildAbiFunctions({ abi: rawContract.abi });
+
+      const registeredEventSelectors: Hex[] = [];
+      // Validate that the registered log events exist in the abi
+      for (const logEvent of registeredLogEvents) {
+        const abiEvent = abiEvents.bySafeName[logEvent];
+        if (abiEvent === undefined) {
           throw new Error(
-            `Validation failed: Invalid network for contract '${
-              rawContract.contractName
-            }'. Got '${rawContract.networkName}', expected one of [${networks
-              .map((n) => `'${n.name}'`)
+            `Validation failed: Event name for event '${logEvent}' not found in the contract ABI. Got '${logEvent}', expected one of [${Object.keys(
+              abiEvents.bySafeName,
+            )
+              .map((eventName) => `'${eventName}'`)
               .join(", ")}].`,
           );
         }
 
-        // Get indexing function that were registered for this contract
-        const registeredLogEvents: string[] = [];
-        const registeredCallTraceEvents: string[] = [];
-        for (const eventName of Object.keys(indexingFunctions)) {
-          // log event
-          if (eventName.includes(":")) {
-            const [logContractName, logEventName] = eventName.split(":") as [
-              string,
-              string,
-            ];
-            if (
-              logContractName === rawContract.contractName &&
-              logEventName !== "setup"
-            ) {
-              registeredLogEvents.push(logEventName);
-            }
-          }
+        registeredEventSelectors.push(abiEvent.selector);
+      }
 
-          // call trace event
-          if (eventName.includes(".")) {
-            const [functionContractName, functionName] = eventName.split(
-              ".",
-            ) as [string, string];
-            if (functionContractName === rawContract.contractName) {
-              registeredCallTraceEvents.push(functionName);
-            }
-          }
-        }
-
-        // Note: This can probably throw for invalid ABIs. Consider adding explicit ABI validation before this line.
-        const abiEvents = buildAbiEvents({ abi: rawContract.abi });
-        const abiFunctions = buildAbiFunctions({ abi: rawContract.abi });
-
-        const registeredEventSelectors: Hex[] = [];
-        // Validate that the registered log events exist in the abi
-        for (const logEvent of registeredLogEvents) {
-          const abiEvent = abiEvents.bySafeName[logEvent];
-          if (abiEvent === undefined) {
-            throw new Error(
-              `Validation failed: Event name for event '${logEvent}' not found in the contract ABI. Got '${logEvent}', expected one of [${Object.keys(
-                abiEvents.bySafeName,
-              )
-                .map((eventName) => `'${eventName}'`)
-                .join(", ")}].`,
-            );
-          }
-
-          registeredEventSelectors.push(abiEvent.selector);
-        }
-
-        const registeredFunctionSelectors: Hex[] = [];
-        for (const _function of registeredCallTraceEvents) {
-          const abiFunction = abiFunctions.bySafeName[_function];
-          if (abiFunction === undefined) {
-            throw new Error(
-              `Validation failed: Function name for function '${_function}' not found in the contract ABI. Got '${_function}', expected one of [${Object.keys(
-                abiFunctions.bySafeName,
-              )
-                .map((eventName) => `'${eventName}'`)
-                .join(", ")}].`,
-            );
-          }
-
-          registeredFunctionSelectors.push(abiFunction.selector);
-        }
-
-        let topics: LogTopic[] = [registeredEventSelectors];
-
-        if (rawContract.filter !== undefined) {
-          if (
-            Array.isArray(rawContract.filter.event) &&
-            rawContract.filter.args !== undefined
-          ) {
-            throw new Error(
-              `Validation failed: Event filter for contract '${rawContract.contractName}' cannot contain indexed argument values if multiple events are provided.`,
-            );
-          }
-
-          const filterSafeEventNames = Array.isArray(rawContract.filter.event)
-            ? rawContract.filter.event
-            : [rawContract.filter.event];
-
-          for (const filterSafeEventName of filterSafeEventNames) {
-            const abiEvent = abiEvents.bySafeName[filterSafeEventName];
-            if (!abiEvent) {
-              throw new Error(
-                `Validation failed: Invalid filter for contract '${
-                  rawContract.contractName
-                }'. Got event name '${filterSafeEventName}', expected one of [${Object.keys(
-                  abiEvents.bySafeName,
-                )
-                  .map((n) => `'${n}'`)
-                  .join(", ")}].`,
-              );
-            }
-          }
-
-          // TODO: Explicit validation of indexed argument value format (array or object).
-          // The first element of the array return from `buildTopics` being defined
-          // is an invariant of the current filter design.
-          // Note: This can throw.
-          const [topic0FromFilter, ...topicsFromFilter] = buildTopics(
-            rawContract.abi,
-            rawContract.filter,
-          ) as [Exclude<LogTopic, null>, ...LogTopic[]];
-
-          const filteredEventSelectors = Array.isArray(topic0FromFilter)
-            ? topic0FromFilter
-            : [topic0FromFilter];
-
-          // Validate that the topic0 value defined by the `eventFilter` is a superset of the
-          // registered indexing functions. Simply put, confirm that no indexing function is
-          // defined for a log event that is excluded by the filter.
-          for (const registeredEventSelector of registeredEventSelectors) {
-            if (!filteredEventSelectors.includes(registeredEventSelector)) {
-              const logEventName =
-                abiEvents.bySelector[registeredEventSelector]!.safeName;
-
-              throw new Error(
-                `Validation failed: Event '${logEventName}' is excluded by the event filter defined on the contract '${
-                  rawContract.contractName
-                }'. Got '${logEventName}', expected one of [${filteredEventSelectors
-                  .map((s) => abiEvents.bySelector[s]!.safeName)
-                  .map((eventName) => `'${eventName}'`)
-                  .join(", ")}].`,
-              );
-            }
-          }
-
-          topics = [registeredEventSelectors, ...topicsFromFilter];
-        }
-
-        const baseContract = {
-          contractName: rawContract.contractName,
-          networkName: rawContract.networkName,
-          chainId: network.chainId,
-          abi: rawContract.abi,
-          startBlock: rawContract.startBlock,
-          endBlock: rawContract.endBlock,
-          maxBlockRange: rawContract.maxBlockRange,
-        };
-
-        const resolvedFactory = rawContract?.factory;
-        const resolvedAddress = rawContract?.address;
-
-        if (resolvedFactory !== undefined && resolvedAddress !== undefined) {
+      const registeredFunctionSelectors: Hex[] = [];
+      for (const _function of registeredCallTraceEvents) {
+        const abiFunction = abiFunctions.bySafeName[_function];
+        if (abiFunction === undefined) {
           throw new Error(
-            `Validation failed: Contract '${baseContract.contractName}' cannot specify both 'factory' and 'address' options.`,
+            `Validation failed: Function name for function '${_function}' not found in the contract ABI. Got '${_function}', expected one of [${Object.keys(
+              abiFunctions.bySafeName,
+            )
+              .map((eventName) => `'${eventName}'`)
+              .join(", ")}].`,
           );
         }
 
-        if (resolvedFactory) {
-          // Note that this can throw.
-          const childAddressCriteria =
-            buildChildAddressCriteria(resolvedFactory);
+        registeredFunctionSelectors.push(abiFunction.selector);
+      }
 
-          const factoryLogSource = {
-            ...baseContract,
-            id: `log_${rawContract.contractName}_${rawContract.networkName}`,
-            type: "factoryLog",
-            abiEvents: abiEvents,
-            criteria: {
-              ...childAddressCriteria,
-              includeTransactionReceipts:
-                rawContract.includeTransactionReceipts,
-              topics,
-            },
-          } satisfies FactoryLogSource;
+      let topics: LogTopic[] = [registeredEventSelectors];
 
-          if (rawContract.includeCallTraces) {
-            return [
-              factoryLogSource,
-              {
-                ...baseContract,
-                id: `callTrace_${rawContract.contractName}_${rawContract.networkName}`,
-                type: "factoryCallTrace",
-                abiFunctions,
-                criteria: {
-                  ...childAddressCriteria,
-                  functionSelectors: registeredFunctionSelectors,
-                  includeTransactionReceipts:
-                    rawContract.includeTransactionReceipts,
-                },
-              } satisfies FactoryCallTraceSource,
-            ];
-          }
-
-          return [factoryLogSource];
+      if (rawContract.filter !== undefined) {
+        if (
+          Array.isArray(rawContract.filter.event) &&
+          rawContract.filter.args !== undefined
+        ) {
+          throw new Error(
+            `Validation failed: Event filter for contract '${rawContract.contractName}' cannot contain indexed argument values if multiple events are provided.`,
+          );
         }
 
-        const validatedAddress = Array.isArray(resolvedAddress)
-          ? resolvedAddress.map((r) => toLowerCase(r))
-          : resolvedAddress
-            ? toLowerCase(resolvedAddress)
-            : undefined;
+        const filterSafeEventNames = Array.isArray(rawContract.filter.event)
+          ? rawContract.filter.event
+          : [rawContract.filter.event];
 
-        if (validatedAddress !== undefined) {
-          for (const address of Array.isArray(validatedAddress)
-            ? validatedAddress
-            : [validatedAddress]) {
-            if (!address.startsWith("0x"))
-              throw new Error(
-                `Validation failed: Invalid prefix for address '${address}'. Got '${address.slice(
-                  0,
-                  2,
-                )}', expected '0x'.`,
-              );
-            if (address.length !== 42)
-              throw new Error(
-                `Validation failed: Invalid length for address '${address}'. Got ${address.length}, expected 42 characters.`,
-              );
+        for (const filterSafeEventName of filterSafeEventNames) {
+          const abiEvent = abiEvents.bySafeName[filterSafeEventName];
+          if (!abiEvent) {
+            throw new Error(
+              `Validation failed: Invalid filter for contract '${
+                rawContract.contractName
+              }'. Got event name '${filterSafeEventName}', expected one of [${Object.keys(
+                abiEvents.bySafeName,
+              )
+                .map((n) => `'${n}'`)
+                .join(", ")}].`,
+            );
           }
         }
 
-        const logSource = {
+        // TODO: Explicit validation of indexed argument value format (array or object).
+        // The first element of the array return from `buildTopics` being defined
+        // is an invariant of the current filter design.
+        // Note: This can throw.
+        const [topic0FromFilter, ...topicsFromFilter] = buildTopics(
+          rawContract.abi,
+          rawContract.filter,
+        ) as [Exclude<LogTopic, null>, ...LogTopic[]];
+
+        const filteredEventSelectors = Array.isArray(topic0FromFilter)
+          ? topic0FromFilter
+          : [topic0FromFilter];
+
+        // Validate that the topic0 value defined by the `eventFilter` is a superset of the
+        // registered indexing functions. Simply put, confirm that no indexing function is
+        // defined for a log event that is excluded by the filter.
+        for (const registeredEventSelector of registeredEventSelectors) {
+          if (!filteredEventSelectors.includes(registeredEventSelector)) {
+            const logEventName =
+              abiEvents.bySelector[registeredEventSelector]!.safeName;
+
+            throw new Error(
+              `Validation failed: Event '${logEventName}' is excluded by the event filter defined on the contract '${
+                rawContract.contractName
+              }'. Got '${logEventName}', expected one of [${filteredEventSelectors
+                .map((s) => abiEvents.bySelector[s]!.safeName)
+                .map((eventName) => `'${eventName}'`)
+                .join(", ")}].`,
+            );
+          }
+        }
+
+        topics = [registeredEventSelectors, ...topicsFromFilter];
+      }
+
+      const baseContract = {
+        contractName: rawContract.contractName,
+        networkName: rawContract.networkName,
+        chainId: network.chainId,
+        abi: rawContract.abi,
+        startBlock: rawContract.startBlock,
+        endBlock: rawContract.endBlock,
+        maxBlockRange: rawContract.maxBlockRange,
+      };
+
+      const resolvedFactory = rawContract?.factory;
+      const resolvedAddress = rawContract?.address;
+
+      if (resolvedFactory !== undefined && resolvedAddress !== undefined) {
+        throw new Error(
+          `Validation failed: Contract '${baseContract.contractName}' cannot specify both 'factory' and 'address' options.`,
+        );
+      }
+
+      if (resolvedFactory) {
+        // Note that this can throw.
+        const childAddressCriteria = buildChildAddressCriteria(resolvedFactory);
+
+        const factoryLogSource = {
           ...baseContract,
           id: `log_${rawContract.contractName}_${rawContract.networkName}`,
-          type: "log",
+          type: "factoryLog",
           abiEvents: abiEvents,
           criteria: {
-            address: validatedAddress,
-            topics,
+            ...childAddressCriteria,
             includeTransactionReceipts: rawContract.includeTransactionReceipts,
+            topics,
           },
-        } satisfies LogSource;
+        } satisfies FactoryLogSource;
 
         if (rawContract.includeCallTraces) {
           return [
-            logSource,
+            factoryLogSource,
             {
               ...baseContract,
               id: `callTrace_${rawContract.contractName}_${rawContract.networkName}`,
-              type: "callTrace",
+              type: "factoryCallTrace",
               abiFunctions,
               criteria: {
-                toAddress: Array.isArray(validatedAddress)
-                  ? validatedAddress
-                  : validatedAddress === undefined
-                    ? undefined
-                    : [validatedAddress],
+                ...childAddressCriteria,
                 functionSelectors: registeredFunctionSelectors,
                 includeTransactionReceipts:
                   rawContract.includeTransactionReceipts,
               },
-            } satisfies CallTraceSource,
+            } satisfies FactoryCallTraceSource,
           ];
-        } else return [logSource];
-      },
-    )
-    // Remove sources with no registered indexing functions
-    .filter((source) => {
-      const hasRegisteredIndexingFunctions =
-        sourceIsCallTrace(source) || sourceIsFactoryCallTrace(source)
-          ? source.criteria.functionSelectors.length !== 0
-          : source.criteria.topics[0]?.length !== 0;
-      if (!hasRegisteredIndexingFunctions) {
-        logs.push({
-          level: "debug",
-          msg: `No indexing functions were registered for '${
-            source.contractName
-          }' ${sourceIsCallTrace(source) ? "call traces" : "logs"}`,
-        });
+        }
+
+        return [factoryLogSource];
       }
-      return hasRegisteredIndexingFunctions;
+
+      const validatedAddress = Array.isArray(resolvedAddress)
+        ? resolvedAddress.map((r) => toLowerCase(r))
+        : resolvedAddress
+          ? toLowerCase(resolvedAddress)
+          : undefined;
+
+      if (validatedAddress !== undefined) {
+        for (const address of Array.isArray(validatedAddress)
+          ? validatedAddress
+          : [validatedAddress]) {
+          if (!address.startsWith("0x"))
+            throw new Error(
+              `Validation failed: Invalid prefix for address '${address}'. Got '${address.slice(
+                0,
+                2,
+              )}', expected '0x'.`,
+            );
+          if (address.length !== 42)
+            throw new Error(
+              `Validation failed: Invalid length for address '${address}'. Got ${address.length}, expected 42 characters.`,
+            );
+        }
+      }
+
+      const logSource = {
+        // ...baseContract,
+        // fu
+        // id: `log_${rawContract.contractName}_${rawContract.networkName}`,
+        // type: "log",
+        // abiEvents: abiEvents,
+        // criteria: {
+        //   address: validatedAddress,
+        //   topics,
+        //   includeTransactionReceipts: rawContract.includeTransactionReceipts,
+        // },
+        filter: {
+          type: "log",
+          chainId: network.chainId,
+          address: validatedAddress,
+          topics,
+          fromBlock: baseContract.startBlock,
+          toBlock: baseContract.endBlock,
+        },
+      } satisfies Source;
+
+      if (rawContract.includeCallTraces) {
+        return [
+          logSource,
+          {
+            ...baseContract,
+            id: `callTrace_${rawContract.contractName}_${rawContract.networkName}`,
+            type: "callTrace",
+            abiFunctions,
+            criteria: {
+              toAddress: Array.isArray(validatedAddress)
+                ? validatedAddress
+                : validatedAddress === undefined
+                  ? undefined
+                  : [validatedAddress],
+              functionSelectors: registeredFunctionSelectors,
+              includeTransactionReceipts:
+                rawContract.includeTransactionReceipts,
+            },
+          } satisfies CallTraceSource,
+        ];
+      } else return [logSource];
     });
+  // Remove sources with no registered indexing functions
+  // .filter((source) => {
+  //   const hasRegisteredIndexingFunctions =
+  //     sourceIsCallTrace(source) || sourceIsFactoryCallTrace(source)
+  //       ? source.criteria.functionSelectors.length !== 0
+  //       : source.criteria.topics[0]?.length !== 0;
+  //   if (!hasRegisteredIndexingFunctions) {
+  //     logs.push({
+  //       level: "debug",
+  //       msg: `No indexing functions were registered for '${
+  //         source.contractName
+  //       }' ${sourceIsCallTrace(source) ? "call traces" : "logs"}`,
+  //     });
+  //   }
+  //   return hasRegisteredIndexingFunctions;
+  // });
 
   const blockSources: BlockSource[] = Object.entries(config.blocks ?? {})
     .flatMap(([sourceName, blockSourceConfig]) => {
@@ -839,18 +832,19 @@ export async function buildConfigAndIndexingFunctions({
   const sources = [...contractSources, ...blockSources];
 
   // Filter out any networks that don't have any sources registered.
-  const networksWithSources = networks.filter((network) => {
-    const hasSources = sources.some(
-      (source) => source.networkName === network.name,
-    );
-    if (!hasSources) {
-      logs.push({
-        level: "warn",
-        msg: `No sources registered for network '${network.name}'`,
-      });
-    }
-    return hasSources;
-  });
+  const networksWithSources = networks;
+  // .filter((network) => {
+  //   const hasSources = sources.some(
+  //     (source) => source.networkName === network.name,
+  //   );
+  //   if (!hasSources) {
+  //     logs.push({
+  //       level: "warn",
+  //       msg: `No sources registered for network '${network.name}'`,
+  //     });
+  //   }
+  //   return hasSources;
+  // });
 
   const optionsConfig: Partial<Options> = {};
   if (config.options?.maxHealthcheckDuration !== undefined) {

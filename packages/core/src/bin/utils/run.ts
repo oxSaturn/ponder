@@ -10,12 +10,10 @@ import { getReadonlyStore } from "@/indexing-store/readonly.js";
 import { getRealtimeStore } from "@/indexing-store/realtime.js";
 import type { IndexingStore, Status } from "@/indexing-store/store.js";
 import { createIndexingService } from "@/indexing/index.js";
-import { PostgresSyncStore } from "@/sync-store/postgres/store.js";
-import { SqliteSyncStore } from "@/sync-store/sqlite/store.js";
-import type { SyncStore } from "@/sync-store/store.js";
+import { createSyncStore } from "@/sync-store/index.js";
 import type { Event } from "@/sync/events.js";
 import { decodeEvents } from "@/sync/events.js";
-import { createSyncService } from "@/sync/index.js";
+import { createSync } from "@/sync/index2.js";
 import {
   type Checkpoint,
   isCheckpointEqual,
@@ -67,7 +65,6 @@ export async function run({
   common.options = { ...common.options, ...optionsConfig };
 
   let database: DatabaseService;
-  let syncStore: SyncStore;
   let namespaceInfo: NamespaceInfo;
   let initialCheckpoint: Checkpoint;
 
@@ -85,8 +82,6 @@ export async function run({
     [namespaceInfo, initialCheckpoint] = await database
       .setup({ schema, buildId })
       .then(({ namespaceInfo, checkpoint }) => [namespaceInfo, checkpoint]);
-
-    syncStore = new SqliteSyncStore({ db: database.syncDb, common });
   } else {
     const { poolConfig, schema: userNamespace, publishSchema } = databaseConfig;
     database = new PostgresDatabaseService({
@@ -98,9 +93,13 @@ export async function run({
     [namespaceInfo, initialCheckpoint] = await database
       .setup({ schema, buildId })
       .then(({ namespaceInfo, checkpoint }) => [namespaceInfo, checkpoint]);
-
-    syncStore = new PostgresSyncStore({ db: database.syncDb, common });
   }
+
+  const syncStore = createSyncStore({
+    common,
+    db: database.syncDb,
+    sql: database.kind,
+  });
 
   const metadataStore = getMetadataStore({
     encoding: database.kind,
@@ -115,18 +114,18 @@ export async function run({
   runCodegen({ common, graphqlSchema });
 
   // Note: can throw
-  const syncService = await createSyncService({
+  const sync = await createSync({
     common,
     syncStore,
     networks,
     sources,
     // Note: this is not great because it references the
     // `realtimeQueue` which isn't defined yet
-    onRealtimeEvent: (realtimeEvent) => {
-      realtimeQueue.add(realtimeEvent);
-    },
-    onFatalError,
-    initialCheckpoint,
+    // onRealtimeEvent: (realtimeEvent) => {
+    //   realtimeQueue.add(realtimeEvent);
+    // },
+    // onFatalError,
+    // initialCheckpoint,
   });
 
   const handleEvents = async (events: Event[], toCheckpoint: Checkpoint) => {
@@ -218,55 +217,46 @@ export async function run({
 
   let indexingStore: IndexingStore = historicalStore;
 
-  const indexingService = createIndexingService({
-    indexingFunctions,
-    common,
-    indexingStore,
-    sources,
-    networks,
-    syncService,
-    schema,
-  });
+  // const indexingService = createIndexingService({
+  //   indexingFunctions,
+  //   common,
+  //   indexingStore,
+  //   sources,
+  //   networks,
+  //   syncService,
+  //   schema,
+  // });
 
   const start = async () => {
-    syncService.startHistorical();
-
     // If the initial checkpoint is zero, we need to run setup events.
-    if (isCheckpointEqual(initialCheckpoint, zeroCheckpoint)) {
-      const result = await indexingService.processSetupEvents({
-        sources,
-        networks,
-      });
-      if (result.status === "killed") {
-        return;
-      } else if (result.status === "error") {
-        onReloadableError(result.error);
-        return;
-      }
-    }
+    // if (isCheckpointEqual(initialCheckpoint, zeroCheckpoint)) {
+    //   const result = await indexingService.processSetupEvents({
+    //     sources,
+    //     networks,
+    //   });
+    //   if (result.status === "killed") {
+    //     return;
+    //   } else if (result.status === "error") {
+    //     onReloadableError(result.error);
+    //     return;
+    //   }
+    // }
 
     // Run historical indexing until complete.
-    for await (const {
-      fromCheckpoint,
-      toCheckpoint,
-    } of syncService.getHistoricalCheckpoint()) {
-      for await (const rawEvents of syncStore.getEvents({
-        sources: sources,
-        fromCheckpoint,
-        toCheckpoint,
-      })) {
-        const result = await handleEvents(
-          decodeEvents(syncService, rawEvents),
-          toCheckpoint,
-        );
+    for await (const rawEvents of sync.getEvents()) {
+      // const result = await handleEvents(
+      //   decodeEvents(syncService, rawEvents),
+      //   toCheckpoint,
+      // );
 
-        if (result.status === "killed") {
-          return;
-        } else if (result.status === "error") {
-          onReloadableError(result.error);
-          return;
-        }
-      }
+      console.log("YES", rawEvents.length);
+
+      // if (result.status === "killed") {
+      //   return;
+      // } else if (result.status === "error") {
+      //   onReloadableError(result.error);
+      //   return;
+      // }
     }
 
     await historicalStore.flush({ isFullFlush: true });
@@ -274,13 +264,13 @@ export async function run({
     // Manually update metrics to fix a UI bug that occurs when the end
     // checkpoint is between the last processed event and the finalized
     // checkpoint.
-    common.metrics.ponder_indexing_completed_seconds.set(
-      syncService.checkpoint.blockTimestamp -
-        syncService.startCheckpoint.blockTimestamp,
-    );
-    common.metrics.ponder_indexing_completed_timestamp.set(
-      syncService.checkpoint.blockTimestamp,
-    );
+    // common.metrics.ponder_indexing_completed_seconds.set(
+    //   syncService.checkpoint.blockTimestamp -
+    //     syncService.startCheckpoint.blockTimestamp,
+    // );
+    // common.metrics.ponder_indexing_completed_timestamp.set(
+    //   syncService.checkpoint.blockTimestamp,
+    // );
 
     // Become healthy
     common.logger.info({
@@ -291,7 +281,7 @@ export async function run({
     if (database.kind === "postgres") {
       await database.publish();
     }
-    await handleFinalize(syncService.finalizedCheckpoint);
+    // await handleFinalize(syncService.finalizedCheckpoint);
 
     await database.createIndexes({ schema });
 
@@ -306,19 +296,19 @@ export async function run({
       }),
     };
 
-    indexingService.updateIndexingStore({ indexingStore, schema });
+    // indexingService.updateIndexingStore({ indexingStore, schema });
 
-    syncService.startRealtime();
+    // syncService.startRealtime();
 
     // set status to ready and set blocks to most recently processed
     // or end block
-    const statusBlocks = syncService.getStatusBlocks();
-    for (const network of networks) {
-      status[network.name] = {
-        ready: true,
-        block: statusBlocks[network.name] ?? null,
-      };
-    }
+    // const statusBlocks = syncService.getStatusBlocks();
+    // for (const network of networks) {
+    //   status[network.name] = {
+    //     ready: true,
+    //     block: statusBlocks[network.name] ?? null,
+    //   };
+    // }
 
     await metadataStore.setStatus(status);
 
@@ -331,8 +321,8 @@ export async function run({
   const startPromise = start();
 
   return async () => {
-    indexingService.kill();
-    await syncService.kill();
+    // indexingService.kill();
+    // await syncService.kill();
     realtimeQueue.pause();
     realtimeQueue.clear();
     await realtimeQueue.onIdle();
