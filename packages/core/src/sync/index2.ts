@@ -29,6 +29,7 @@ type CreateSyncParameters = {
 
 type LocalSync = {
   startBlock: SyncBlock;
+  endBlock: SyncBlock | undefined;
   latestBlock: SyncBlock | undefined;
   finalizedBlock: SyncBlock;
   sync(): Promise<void>;
@@ -48,14 +49,20 @@ const createLocalSync = async (args: {
 
   /** Earliest `startBlock` among all `filters` */
   const start = Math.min(...args.filters.map((f) => f.fromBlock ?? 0));
-  // /** `true` if all `filters` have a defined end block */
-  // const isEndBlockSet = args.filters.every((f) => f.toBlock !== undefined);
-  // /** `true` if all `filters` have a defined end block in the finalized range */
-  // const isEndBlockFinalized;
+  /**
+   * Latest `endBlock` among all filters. `undefined` if at least one
+   * of the filters doesn't have an `endBlock`.
+   */
+  const end = args.filters.some((f) => f.toBlock === undefined)
+    ? undefined
+    : Math.min(...args.filters.map((f) => f.toBlock!));
 
-  const [remoteChainId, startBlock, latestBlock] = await Promise.all([
+  const [remoteChainId, startBlock, endBlock, latestBlock] = await Promise.all([
     requestQueue.request({ method: "eth_chainId" }),
     _eth_getBlockByNumber({ requestQueue }, { blockNumber: start }),
+    end === undefined
+      ? undefined
+      : _eth_getBlockByNumber({ requestQueue }, { blockNumber: end }),
     _eth_getBlockByNumber({ requestQueue }, { blockTag: "latest" }),
   ]);
 
@@ -93,8 +100,9 @@ const createLocalSync = async (args: {
 
   return {
     startBlock,
+    endBlock,
     get latestBlock() {
-      // [explain why]
+      // ...
       if (fromBlock === hexToNumber(finalizedBlock.number))
         return finalizedBlock;
       return historicalSync.latestBlock;
@@ -135,8 +143,9 @@ export const createSync = async (args: CreateSyncParameters): Promise<Sync> => {
 
   /**
    * Returns the minimum checkpoint across all chains.
+   *
    * Note: `historicalSync.latestBlock` is assumed to be defined if
-   * this function is called with `tag` == "latest".
+   * this function is called with `tag`: "latest".
    */
   const getChainsCheckpoint = (
     tag: "start" | "latest" | "finalized",
@@ -171,6 +180,10 @@ export const createSync = async (args: CreateSyncParameters): Promise<Sync> => {
     const start = getChainsCheckpoint("start");
     const end = getChainsCheckpoint("finalized");
 
+    // await args.syncStore
+    //   .getEventCount({ filters: args.sources.map(({ filter }) => filter) })
+    //   .then(console.log);
+
     // ...
     let from = start;
 
@@ -178,9 +191,7 @@ export const createSync = async (args: CreateSyncParameters): Promise<Sync> => {
       const _localSyncs = args.networks.map(
         ({ chain }) => localSyncs.get(chain)!,
       );
-      // sync each chain
       await Promise.all(_localSyncs.map((l) => l.sync()));
-      // TODO(kyle) check against endBlocks
       if (_localSyncs.some((l) => l.latestBlock === undefined)) continue;
       const to = getChainsCheckpoint("latest");
 

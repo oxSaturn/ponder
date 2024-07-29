@@ -127,11 +127,8 @@ export async function run({
     // initialCheckpoint,
   });
 
-  const handleEvents = async (events: Event[], toCheckpoint: Checkpoint) => {
-    indexingService.updateTotalSeconds(toCheckpoint);
-
+  const handleEvents = async (events: Event[]) => {
     if (events.length === 0) return { status: "success" } as const;
-
     return await indexingService.processEvents({ events });
   };
 
@@ -165,7 +162,6 @@ export async function run({
           })) {
             const result = await handleEvents(
               decodeEvents(syncService, rawEvents),
-              event.toCheckpoint,
             );
             if (result.status === "error") onReloadableError(result.error);
           }
@@ -245,7 +241,6 @@ export async function run({
     for await (const rawEvents of sync.getEvents()) {
       // const result = await handleEvents(
       //   decodeEvents(syncService, rawEvents),
-      //   toCheckpoint,
       // );
 
       console.log("YES", rawEvents.length);
@@ -259,17 +254,6 @@ export async function run({
     }
 
     await historicalStore.flush({ isFullFlush: true });
-
-    // Manually update metrics to fix a UI bug that occurs when the end
-    // checkpoint is between the last processed event and the finalized
-    // checkpoint.
-    // common.metrics.ponder_indexing_completed_seconds.set(
-    //   syncService.checkpoint.blockTimestamp -
-    //     syncService.startCheckpoint.blockTimestamp,
-    // );
-    // common.metrics.ponder_indexing_completed_timestamp.set(
-    //   syncService.checkpoint.blockTimestamp,
-    // );
 
     // Become healthy
     common.logger.info({

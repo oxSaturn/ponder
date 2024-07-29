@@ -151,7 +151,7 @@ export const createHistoricalSync = async (
           }
 
           // Add newly synced data to the "event" table, and then
-          // add to the "interval" table.
+          // insert into the "interval" table.
           await args.syncStore.populateEvents(filter, interval);
           await args.syncStore.insertInterval("event", filter, interval);
         }

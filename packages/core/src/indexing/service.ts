@@ -10,7 +10,6 @@ import {
 } from "@/config/sources.js";
 import type { IndexingStore } from "@/indexing-store/store.js";
 import type { Schema } from "@/schema/common.js";
-import type { SyncService } from "@/sync/index.js";
 import type { DatabaseModel } from "@/types/model.js";
 import type { UserRecord } from "@/types/schema.js";
 import {
@@ -239,7 +238,7 @@ export const processSetupEvents = async (
       )! as LogSource | FactoryLogSource;
 
       if (indexingService.isKilled) return { status: "killed" };
-      indexingService.eventCount[eventName]![source.networkName]++;
+      indexingService.eventCount[eventName]![source.networkName]!++;
 
       const result = await executeSetup(indexingService, {
         event: {
@@ -285,7 +284,7 @@ export const processEvents = async (
 
         indexingService.eventCount[eventName]![
           indexingService.networkByChainId[event.chainId]!.name
-        ]++;
+        ]!++;
 
         indexingService.common.logger.trace({
           service: "indexing",
@@ -313,7 +312,7 @@ export const processEvents = async (
 
         indexingService.eventCount[eventName]![
           indexingService.networkByChainId[event.chainId]!.name
-        ]++;
+        ]!++;
 
         indexingService.common.logger.trace({
           service: "indexing",
@@ -341,7 +340,7 @@ export const processEvents = async (
 
         indexingService.eventCount[eventName]![
           indexingService.networkByChainId[event.chainId]!.name
-        ]++;
+        ]!++;
 
         indexingService.common.logger.trace({
           service: "indexing",
@@ -372,36 +371,11 @@ export const processEvents = async (
     if (i % 93 === 0) {
       updateCompletedEvents(indexingService);
 
-      const eventTimestamp = decodeCheckpoint(
-        event.encodedCheckpoint,
-      ).blockTimestamp;
-
-      indexingService.common.metrics.ponder_indexing_completed_seconds.set(
-        eventTimestamp - indexingService.startCheckpoint.blockTimestamp,
-      );
-      indexingService.common.metrics.ponder_indexing_completed_timestamp.set(
-        eventTimestamp,
-      );
-
       // Note: allows for terminal and logs to be updated
       await new Promise(setImmediate);
     }
   }
 
-  // set completed seconds
-  if (events.length > 0) {
-    const lastEventInBatchTimestamp = decodeCheckpoint(
-      events[events.length - 1]!.encodedCheckpoint,
-    ).blockTimestamp;
-
-    indexingService.common.metrics.ponder_indexing_completed_seconds.set(
-      lastEventInBatchTimestamp -
-        indexingService.startCheckpoint.blockTimestamp,
-    );
-    indexingService.common.metrics.ponder_indexing_completed_timestamp.set(
-      lastEventInBatchTimestamp,
-    );
-  }
   // set completed events
   updateCompletedEvents(indexingService);
 
@@ -428,16 +402,6 @@ export const kill = (indexingService: Service) => {
     msg: "Killed indexing service",
   });
   indexingService.isKilled = true;
-};
-
-export const updateTotalSeconds = (
-  indexingService: Service,
-  endCheckpoint: Checkpoint,
-) => {
-  indexingService.common.metrics.ponder_indexing_total_seconds.set(
-    endCheckpoint.blockTimestamp -
-      indexingService.startCheckpoint.blockTimestamp,
-  );
 };
 
 const updateCompletedEvents = (indexingService: Service) => {

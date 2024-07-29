@@ -1005,7 +1005,7 @@ const migrations: Record<string, Migration> = {
         .addColumn("chain_id", "integer", (col) => col.notNull())
         .addColumn("number", "varchar(79)", (col) => col.notNull())
         .addColumn("timestamp", "varchar(79)", (col) => col.notNull())
-        .addColumn("body", "jsonb", (col) => col.notNull())
+        .addColumn("body", "text", (col) => col.notNull())
         .addPrimaryKeyConstraint("primary_key", ["chain_id", "hash"])
         .execute();
 
@@ -1028,7 +1028,7 @@ const migrations: Record<string, Migration> = {
         .addColumn("topic2", "varchar(66)")
         .addColumn("topic3", "varchar(66)")
         .addColumn("transaction_hash", "varchar(66)", (col) => col.notNull())
-        .addColumn("body", "jsonb", (col) => col.notNull())
+        .addColumn("body", "text", (col) => col.notNull())
         .addPrimaryKeyConstraint("primary_key", [
           "chain_id",
           "block_hash",
@@ -1055,7 +1055,7 @@ const migrations: Record<string, Migration> = {
         .addColumn("chain_id", "integer", (col) => col.notNull())
         .addColumn("block_number", "varchar(79)", (col) => col.notNull())
         .addColumn("transaction_index", "integer", (col) => col.notNull())
-        .addColumn("body", "jsonb", (col) => col.notNull())
+        .addColumn("body", "text", (col) => col.notNull())
         .addPrimaryKeyConstraint("primary_key", ["chain_id", "hash"])
         .execute();
 
@@ -1073,7 +1073,7 @@ const migrations: Record<string, Migration> = {
         .addColumn("hash", "varchar(66)", (col) => col.notNull())
         .addColumn("chain_id", "integer", (col) => col.notNull())
         .addColumn("block_number", "varchar(79)", (col) => col.notNull())
-        .addColumn("body", "jsonb", (col) => col.notNull())
+        .addColumn("body", "text", (col) => col.notNull())
         .addPrimaryKeyConstraint("primary_key", ["chain_id", "hash"])
         .execute();
 
@@ -1151,6 +1151,7 @@ const migrations: Record<string, Migration> = {
         .addColumn("filter_id", "text", (col) => col.notNull())
         .addColumn("checkpoint", "varchar(75)", (col) => col.notNull())
         .addColumn("chain_id", "integer", (col) => col.notNull())
+        // .addColumn("data", "json")
         .addColumn("block_number", "varchar(79)", (col) => col.notNull())
         .addColumn("block_hash", "varchar(66)", (col) => col.notNull())
         .addColumn("log_index", "integer")

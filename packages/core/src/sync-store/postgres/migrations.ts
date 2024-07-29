@@ -1043,6 +1043,7 @@ const migrations: Record<string, Migration> = {
         .addColumn("filter_id", "text", (col) => col.notNull())
         .addColumn("checkpoint", "varchar(75)", (col) => col.notNull())
         .addColumn("chain_id", "integer", (col) => col.notNull())
+        // .addColumn("data", "json")
         .addColumn("block_number", "numeric(78, 0)", (col) => col.notNull())
         .addColumn("block_hash", "varchar(66)", (col) => col.notNull())
         .addColumn("log_index", "integer")
@@ -1052,6 +1053,30 @@ const migrations: Record<string, Migration> = {
           "checkpoint",
           "chain_id",
         ])
+        .execute();
+
+      await db.schema
+        .createIndex("event_block_join_index")
+        .on("event")
+        .columns(["block_hash", "chain_id"])
+        .execute();
+
+      await db.schema
+        .createIndex("event_log_join_index")
+        .on("event")
+        .columns(["block_hash", "log_index", "chain_id"])
+        .execute();
+
+      await db.schema
+        .createIndex("event_transaction_join_index")
+        .on("event")
+        .columns(["transaction_hash", "chain_id"])
+        .execute();
+
+      await db.schema
+        .createIndex("event_filter_id_index")
+        .on("event")
+        .column("filter_id")
         .execute();
     },
   },

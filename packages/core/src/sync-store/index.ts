@@ -67,6 +67,7 @@ export type SyncStore = {
     to: string;
     limit: number;
   }): Promise<{ events: RawEvent[]; cursor: string }>;
+  getEventCount(args: { filters: Filter[] }): Promise<number>;
   deleteSync(fromBlock: bigint, chainId: number): Promise<void>;
   // insertRpcRequestResult
   // getRpcRequestResult;
@@ -528,6 +529,19 @@ lpad(log_index::text, 16, '0')`;
 
     return { events, cursor };
   },
+  getEventCount: async ({ filters }) =>
+    db.wrap({ method: "getEventCount" }, async () => {
+      return await db
+        .selectFrom("event")
+        .select(ksql<number>`count(*)`.as("count"))
+        .where(
+          "event.filter_id",
+          "in",
+          filters.map((filter) => getFilterId("event", filter)),
+        )
+        .executeTakeFirst()
+        .then((result) => result?.count ?? 0);
+    }),
   // pruneByBlock,
   // pruneBySource,
   // pruneByChain,

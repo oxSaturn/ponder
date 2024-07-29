@@ -28,11 +28,9 @@ export type UiState = {
   indexing: {
     hasError: boolean;
     overall: {
-      completedSeconds: number;
-      totalSeconds: number;
-      progress: number;
-      completedToTimestamp: number;
+      completedEvents: number;
       totalEvents: number;
+      progress: number;
     };
     events: {
       eventName: string;
@@ -66,11 +64,9 @@ export const buildUiState = () => {
     indexing: {
       hasError: false,
       overall: {
-        completedSeconds: 0,
-        totalSeconds: 0,
-        progress: 0,
-        completedToTimestamp: 0,
+        completedEvents: 0,
         totalEvents: 0,
+        progress: 0,
       },
       events: [],
     },

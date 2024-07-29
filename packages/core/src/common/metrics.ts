@@ -18,17 +18,14 @@ const httpRequestSizeBytes = [
 export class MetricsService {
   registry: prometheus.Registry;
 
-  ponder_indexing_total_seconds: prometheus.Gauge;
-  ponder_indexing_completed_seconds: prometheus.Gauge;
   ponder_indexing_completed_events: prometheus.Gauge<"network" | "event">;
+  ponder_indexing_total_events: prometheus.Gauge<"network" | "event">;
 
-  ponder_indexing_completed_timestamp: prometheus.Gauge;
   ponder_indexing_has_error: prometheus.Gauge;
 
   ponder_indexing_function_duration: prometheus.Histogram<"network" | "event">;
   ponder_indexing_function_error_total: prometheus.Counter<"network" | "event">;
 
-  ponder_historical_start_timestamp: prometheus.Gauge<"network">;
   ponder_historical_total_blocks: prometheus.Gauge<
     "network" | "source" | "type"
   >;
@@ -71,25 +68,16 @@ export class MetricsService {
   constructor() {
     this.registry = new prometheus.Registry();
 
-    this.ponder_indexing_total_seconds = new prometheus.Gauge({
-      name: "ponder_indexing_total_seconds",
-      help: "Total number of seconds that are required",
-      registers: [this.registry],
-    });
-    this.ponder_indexing_completed_seconds = new prometheus.Gauge({
-      name: "ponder_indexing_completed_seconds",
-      help: "Number of seconds that have been completed",
-      registers: [this.registry],
-    });
     this.ponder_indexing_completed_events = new prometheus.Gauge({
       name: "ponder_indexing_completed_events",
       help: "Number of events that have been processed",
       labelNames: ["network", "event"] as const,
       registers: [this.registry],
     });
-    this.ponder_indexing_completed_timestamp = new prometheus.Gauge({
-      name: "ponder_indexing_completed_timestamp",
-      help: "Timestamp through which all events have been completed",
+    this.ponder_indexing_total_events = new prometheus.Gauge({
+      name: "ponder_indexing_total_events",
+      help: "Total number of events",
+      labelNames: ["network", "event"] as const,
       registers: [this.registry],
     });
     this.ponder_indexing_has_error = new prometheus.Gauge({
@@ -111,12 +99,6 @@ export class MetricsService {
       registers: [this.registry],
     });
 
-    this.ponder_historical_start_timestamp = new prometheus.Gauge({
-      name: "ponder_historical_start_timestamp",
-      help: "Unix timestamp (ms) when the historical sync service started",
-      labelNames: ["network"] as const,
-      registers: [this.registry],
-    });
     this.ponder_historical_total_blocks = new prometheus.Gauge({
       name: "ponder_historical_total_blocks",
       help: "Number of blocks required for the historical sync",
@@ -241,9 +223,7 @@ export class MetricsService {
 
 export async function getHistoricalSyncProgress(metrics: MetricsService) {
   // Historical sync table
-  const startTimestampMetric =
-    (await metrics.ponder_historical_start_timestamp.get()).values?.[0]
-      ?.value ?? Date.now();
+  const startTimestampMetric = Date.now();
 
   /** Aggregate block metrics for different "types" of sources. */
   const reduceBlockMetrics = (
@@ -347,16 +327,13 @@ export async function getIndexingProgress(metrics: MetricsService) {
     .values[0]?.value;
   const hasError = hasErrorMetric === 1;
 
-  const totalSeconds =
-    (await metrics.ponder_indexing_total_seconds.get()).values[0]?.value ?? 0;
-  const completedSeconds =
-    (await metrics.ponder_indexing_completed_seconds.get()).values[0]?.value ??
+  const totalEvents =
+    (await metrics.ponder_indexing_total_events.get()).values[0]?.value ?? 0;
+  const completedEvents =
+    (await metrics.ponder_indexing_completed_events.get()).values[0]?.value ??
     0;
-  const completedToTimestamp =
-    (await metrics.ponder_indexing_completed_timestamp.get()).values[0]!
-      .value ?? 0;
 
-  const progress = totalSeconds === 0 ? 0 : completedSeconds / totalSeconds;
+  const progress = totalEvents === 0 ? 0 : completedEvents / totalEvents;
 
   const indexingCompletedEventsMetric = (
     await metrics.ponder_indexing_completed_events.get()
@@ -397,16 +374,12 @@ export async function getIndexingProgress(metrics: MetricsService) {
     return { eventName, networkName, count, averageDuration, errorCount };
   });
 
-  const totalEvents = events.reduce((a, e) => a + e.count, 0);
-
   return {
     hasError,
     overall: {
-      completedSeconds,
-      totalSeconds,
-      progress,
-      completedToTimestamp,
+      completedEvents,
       totalEvents,
+      progress,
     },
     events,
   };
