@@ -1,3 +1,4 @@
+import type { PonderSyncSchema } from "@/sync-store/encoding.js";
 import type {
   Block,
   CallTrace,
@@ -5,22 +6,16 @@ import type {
   Transaction,
   TransactionReceipt,
 } from "@/types/eth.js";
-import { never } from "@/utils/never.js";
-import {
-  type Hex,
-  decodeEventLog,
-  decodeFunctionData,
-  decodeFunctionResult,
-} from "viem";
+import type { Hex } from "viem";
 
-export type RawEvent = {
-  filter_id: string;
-  checkpoint: string;
-  block: Block;
-  log: Log | null;
-  transaction: Transaction | null;
-  // call_trace: CallTrace | null;
-  transaction_receipt: TransactionReceipt | null;
+export type RawEvent = PonderSyncSchema["event"];
+
+export type RawLogData = {
+  data: Hex;
+  topic0: Hex | null;
+  topic1: Hex | null;
+  topic2: Hex | null;
+  topic3: Hex | null;
 };
 
 export type SetupEvent = {

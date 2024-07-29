@@ -27,50 +27,71 @@ import {
   encodeTransactionReceipt,
 } from "./encoding.js";
 
-// TODO(kyle) do nothing on conflict
-// TODO(kyle) handle empty
-
 export type SyncStore = {
-  insertAddress(
-    filter: AddressFilter,
-    address: Address,
-    blockNumber: bigint,
-  ): Promise<void>;
-  getAddresses(filter: AddressFilter): Promise<Address[]>;
-  insertInterval<type extends "event" | "address">(
-    filterType: type,
-    filter: type extends "address" ? AddressFilter : Filter,
-    interval: Interval,
-  ): Promise<void>;
-  getIntervals<type extends "event" | "address">(
-    filterType: type,
-    filter: type extends "address" ? AddressFilter : Filter,
-  ): Promise<Interval[]>;
-  insertLogs(logs: SyncLog[], chainId: number): Promise<void>;
-  insertBlock(block: SyncBlock, chainId: number): Promise<void>;
-  hasBlock(hash: Hash, chainId: number): Promise<boolean>;
-  insertTransaction(
-    transaction: SyncTransaction,
-    chainId: number,
-  ): Promise<void>;
-  hasTransaction(hash: Hash, chainId: number): Promise<boolean>;
-  insertTransactionReceipt(
-    transactionReceipt: SyncTransactionReceipt,
-    chainId: number,
-  ): Promise<void>;
-  hasTransactionReceipt(hash: Hash, chainId: number): Promise<boolean>;
-  populateEvents(filter: Filter, interval: Interval): Promise<void>;
-  /** Returns an ordered list of events based on the provided sources and pagination arguments. */
+  insertAddress(args: {
+    filter: AddressFilter;
+    address: Address;
+    blockNumber: bigint;
+  }): Promise<void>;
+  getAddresses(args: { filter: AddressFilter }): Promise<Address[]>;
+  insertInterval<type extends "event" | "address">(args: {
+    filterType: type;
+    filter: type extends "address" ? AddressFilter : Filter;
+    interval: Interval;
+  }): Promise<void>;
+  getIntervals<type extends "event" | "address">(args: {
+    filterType: type;
+    filter: type extends "address" ? AddressFilter : Filter;
+  }): Promise<Interval[]>;
+  insertLogs(args: { logs: SyncLog[]; chainId: number }): Promise<void>;
+  insertBlock(args: { block: SyncBlock; chainId: number }): Promise<void>;
+  /** Return true if the block receipt is present in the database. */
+  hasBlock(args: { hash: Hash; chainId: number }): Promise<boolean>;
+  insertTransaction(args: {
+    transaction: SyncTransaction;
+    chainId: number;
+  }): Promise<void>;
+  /** Return true if the transaction is present in the database. */
+  hasTransaction(args: { hash: Hash; chainId: number }): Promise<boolean>;
+  insertTransactionReceipt(args: {
+    transactionReceipt: SyncTransactionReceipt;
+    chainId: number;
+  }): Promise<void>;
+  /** Return true if the transaction receipt is present in the database. */
+  hasTransactionReceipt(args: {
+    hash: Hash;
+    chainId: number;
+  }): Promise<boolean>;
+  /**
+   * Use the "block", "log",  "transaction", and "transaction_receipt" data to fill in the event
+   * table for the given `filters` and `interval`. It is assumed that all underlying data is
+   * present in the database before this is called. Upon successful completion, a row should be
+   * inserted into the "interval" table.
+   */
+  populateEvents(args: { filter: Filter; interval: Interval }): Promise<void>;
+  /** Returns an ordered list of events based on the `filters` and pagination arguments. */
   getEvents(args: {
     filters: Filter[];
     from: string;
     to: string;
     limit: number;
   }): Promise<{ events: RawEvent[]; cursor: string }>;
+  /** Returns the total number of events for the `filters`. */
   getEventCount(args: { filters: Filter[] }): Promise<number>;
-  deleteSync(fromBlock: bigint, chainId: number): Promise<void>;
-  // insertRpcRequestResult
-  // getRpcRequestResult;
+  insertRpcRequestResult(args: {
+    request: string;
+    blockNumber: number;
+    chainId: number;
+    result: string;
+  }): Promise<void>;
+  getRpcRequestResult(args: {
+    request: string;
+    blockNumber: number;
+    chainId: number;
+  }): Promise<string | null>;
+  // pruneByBlock,
+  // pruneBySource,
+  // pruneByChain,
 };
 
 export const createSyncStore = ({
@@ -81,7 +102,7 @@ export const createSyncStore = ({
   sql: "sqlite" | "postgres";
   db: HeadlessKysely<PonderSyncSchema>;
 }): SyncStore => ({
-  insertAddress: async (filter, address, blockNumber) =>
+  insertAddress: async ({ filter, address, blockNumber }) =>
     db.wrap({ method: "insertAddress" }, async () => {
       await db
         .insertInto("address")
@@ -94,7 +115,7 @@ export const createSyncStore = ({
         })
         .execute();
     }),
-  getAddresses: async (filter) =>
+  getAddresses: async ({ filter }) =>
     db.wrap({ method: "getAddresses" }, async () => {
       return await db
         .selectFrom("address")
@@ -104,22 +125,22 @@ export const createSyncStore = ({
         .execute()
         .then((result) => result.map(({ address }) => address));
     }),
-  insertInterval: async (type, filter, interval) =>
+  insertInterval: async ({ filterType, filter, interval }) =>
     db.wrap({ method: "insertInterval" }, async () => {
       await db
         .insertInto("interval")
         .values({
-          filter_id: getFilterId(type, filter),
+          filter_id: getFilterId(filterType, filter),
           chain_id: filter.chainId,
           from: BigInt(interval[0]),
           to: BigInt(interval[1]),
         })
         .execute();
     }),
-  getIntervals: async (type, filter) =>
+  getIntervals: async ({ filterType, filter }) =>
     db.wrap({ method: "getIntervals" }, () =>
       db.transaction().execute(async (tx) => {
-        const filterId = getFilterId(type, filter);
+        const filterId = getFilterId(filterType, filter);
 
         const existingIntervals = await tx
           .deleteFrom("interval")
@@ -145,9 +166,8 @@ export const createSyncStore = ({
         return mergedIntervals;
       }),
     ),
-  insertLogs: async (logs, chainId) =>
+  insertLogs: async ({ logs, chainId }) =>
     db.wrap({ method: "insertLogs" }, async () => {
-      if (logs.length === 0) return;
       await db
         .insertInto("log")
         .values(logs.map((log) => encodeLog(log, chainId, sql)))
@@ -156,7 +176,7 @@ export const createSyncStore = ({
         )
         .execute();
     }),
-  insertBlock: async (block, chainId) =>
+  insertBlock: async ({ block, chainId }) =>
     db.wrap({ method: "insertBlock" }, async () => {
       await db
         .insertInto("block")
@@ -164,7 +184,7 @@ export const createSyncStore = ({
         .onConflict((oc) => oc.columns(["hash", "chain_id"]).doNothing())
         .execute();
     }),
-  hasBlock: async (hash, chainId) =>
+  hasBlock: async ({ hash, chainId }) =>
     db.wrap({ method: "hasBlock" }, async () => {
       return await db
         .selectFrom("block")
@@ -174,7 +194,7 @@ export const createSyncStore = ({
         .executeTakeFirst()
         .then((result) => result !== undefined);
     }),
-  insertTransaction: async (transaction, chainId) =>
+  insertTransaction: async ({ transaction, chainId }) =>
     db.wrap({ method: "insertTransaction" }, async () => {
       await db
         .insertInto("transaction")
@@ -182,7 +202,7 @@ export const createSyncStore = ({
         .onConflict((oc) => oc.columns(["hash", "chain_id"]).doNothing())
         .execute();
     }),
-  hasTransaction: async (hash, chainId) =>
+  hasTransaction: async ({ hash, chainId }) =>
     db.wrap({ method: "hasTransaction" }, async () => {
       return await db
         .selectFrom("transaction")
@@ -192,14 +212,15 @@ export const createSyncStore = ({
         .executeTakeFirst()
         .then((result) => result !== undefined);
     }),
-  insertTransactionReceipt: async (transactionReceipt, chainId) =>
+  insertTransactionReceipt: async ({ transactionReceipt, chainId }) =>
     db.wrap({ method: "insertTransactionReceipt" }, async () => {
       await db
         .insertInto("transaction_receipt")
         .values(encodeTransactionReceipt(transactionReceipt, chainId, sql))
+        .onConflict((oc) => oc.columns(["hash", "chain_id"]).doNothing())
         .execute();
     }),
-  hasTransactionReceipt: async (hash, chainId) =>
+  hasTransactionReceipt: async ({ hash, chainId }) =>
     db.wrap({ method: "hasTransactionReceipt" }, async () => {
       return await db
         .selectFrom("transaction_receipt")
@@ -209,7 +230,7 @@ export const createSyncStore = ({
         .executeTakeFirst()
         .then((result) => result !== undefined);
     }),
-  populateEvents: async (filter, interval) => {
+  populateEvents: async ({ filter, interval }) => {
     const childAddressSQL = (
       childAddressLocation: LogAddressFilter["childAddressLocation"],
     ) => {
@@ -267,6 +288,15 @@ export const createSyncStore = ({
       .where("chain_id", "=", ksql.ref("log.chain_id"))
       .compile().sql;
 
+    const logDataSQL = `
+json_object(
+  'data', data, 
+  'topic0', topic0, 
+  'topic1', topic1,
+  'topic2', topic2,
+  'topic3', topic3
+)`;
+
     const logCheckpointSQLite = `
 substr((${blockTimestampQuery}), -10, 10) ||
 substr('0000000000000000' || chain_id, -16, 16) ||
@@ -283,6 +313,22 @@ lpad((${transactionIndexQuery})::text, 16, '0') ||
 '5' ||
 lpad(log_index::text, 16, '0')`;
 
+    const blockCheckpointSQLite = `
+substr(timestamp, -10, 10) ||
+substr('0000000000000000' || chain_id, -16, 16) ||
+substr(number, -16, 16) ||
+'9999999999999999' ||
+'5' ||
+'0000000000000000'`;
+
+    const blockCheckpointPostgres = `
+lpad(timestamp::text, 10, '0') ||
+lpad(chain_id::text, 16, '0') ||
+lpad(number::text, 16, '0') ||
+'9999999999999999' ||
+'5' ||
+'0000000000000000'`;
+
     await db.wrap({ method: "populateEvents" }, async () => {
       switch (filter.type) {
         case "log":
@@ -290,10 +336,7 @@ lpad(log_index::text, 16, '0')`;
             const subquery = db
               .selectFrom("log")
               .select([
-                // TODO(kyle) postgres uses ::[type] operator
-                ksql
-                  .raw(`'${getFilterId("event", filter)}'`)
-                  .as("filter_id"),
+                ksql.raw(`'${getFilterId("event", filter)}'`).as("filter_id"),
                 ksql
                   .raw(
                     sql === "sqlite"
@@ -302,6 +345,7 @@ lpad(log_index::text, 16, '0')`;
                   )
                   .as("checkpoint"),
                 "chain_id",
+                ksql.raw(logDataSQL).as("data"),
                 "block_number",
                 "block_hash",
                 "log_index",
@@ -366,6 +410,7 @@ lpad(log_index::text, 16, '0')`;
                 "filter_id",
                 "checkpoint",
                 "chain_id",
+                "data",
                 "block_number",
                 "block_hash",
                 "log_index",
@@ -373,7 +418,7 @@ lpad(log_index::text, 16, '0')`;
               ])
               .expression(subquery)
               .onConflict((oc) =>
-                oc.columns(["filter_id", "checkpoint", "chain_id"]).doNothing(),
+                oc.columns(["filter_id", "checkpoint"]).doNothing(),
               )
               .execute();
           }
@@ -384,10 +429,7 @@ lpad(log_index::text, 16, '0')`;
             const subquery = db
               .selectFrom("block")
               .select([
-                // TODO(kyle) postgres uses ::[type] operator
-                ksql
-                  .raw(`'${getFilterId("event", filter)}'`)
-                  .as("filter_id"),
+                ksql.raw(`'${getFilterId("event", filter)}'`).as("filter_id"),
                 ksql
                   .raw(
                     sql === "sqlite"
@@ -451,7 +493,7 @@ lpad(log_index::text, 16, '0')`;
               ])
               .expression(subquery)
               .onConflict((oc) =>
-                oc.columns(["filter_id", "checkpoint", "chain_id"]).doNothing(),
+                oc.columns(["filter_id", "checkpoint"]).doNothing(),
               )
               .execute();
           }
@@ -463,48 +505,10 @@ lpad(log_index::text, 16, '0')`;
     });
   },
   getEvents: async ({ filters, from, to, limit }) => {
-    const start = performance.now();
     const events = await db.wrap({ method: "getEvents" }, async () => {
       return await db
         .selectFrom("event")
-        .innerJoin("block", (join) =>
-          join.on((eb) =>
-            eb.and([
-              eb("event.block_hash", "=", ksql.ref("block.hash")),
-              eb("event.chain_id", "=", ksql.ref("block.chain_id")),
-            ]),
-          ),
-        )
-        .leftJoin("log", (join) =>
-          join.on((eb) =>
-            eb.and([
-              eb("event.block_hash", "=", ksql.ref("log.block_hash")),
-              eb("event.log_index", "=", ksql.ref("log.log_index")),
-              eb("event.chain_id", "=", ksql.ref("log.chain_id")),
-            ]),
-          ),
-        )
-        .leftJoin("transaction", (join) =>
-          join.on((eb) =>
-            eb.and([
-              eb("event.transaction_hash", "=", ksql.ref("transaction.hash")),
-              eb("event.chain_id", "=", ksql.ref("transaction.chain_id")),
-            ]),
-          ),
-        )
-        // .leftJoin(
-        //   "transaction_receipt",
-        //   "transaction_receipt.hash",
-        //   "event.transaction_hash",
-        // )
-        .select([
-          "event.checkpoint",
-          "event.filter_id",
-          // "block.body as block",
-          // "log.body as log",
-          // "transaction.body as transaction",
-          // "transaction_receipt.body as transaction_receipt",
-        ])
+        .selectAll()
         .where(
           "event.filter_id",
           "in",
@@ -517,8 +521,6 @@ lpad(log_index::text, 16, '0')`;
         .limit(limit)
         .execute();
     });
-
-    console.log(performance.now() - start);
 
     let cursor: string;
     if (events.length !== limit) {
@@ -542,23 +544,36 @@ lpad(log_index::text, 16, '0')`;
         .executeTakeFirst()
         .then((result) => result?.count ?? 0);
     }),
-  // pruneByBlock,
-  // pruneBySource,
-  // pruneByChain,
+  insertRpcRequestResult: async ({ request, blockNumber, chainId, result }) =>
+    db.wrap({ method: "insertRpcRequestResult" }, async () => {
+      await db
+        .insertInto("rpcRequestResults")
+        .values({
+          request,
+          blockNumber:
+            sql === "sqlite" ? encodeAsText(blockNumber) : BigInt(blockNumber),
+          chainId,
+          result,
+        })
+        .onConflict((oc) =>
+          oc.columns(["request", "chainId", "blockNumber"]).doNothing(),
+        )
+        .execute();
+    }),
+  getRpcRequestResult: async ({ request, blockNumber, chainId }) =>
+    db.wrap({ method: "getRpcRequestResult" }, async () => {
+      const result = await db
+        .selectFrom("rpcRequestResults")
+        .select("result")
+        .where("request", "=", request)
+        .where("chainId", "=", chainId)
+        .where(
+          "blockNumber",
+          "=",
+          sql === "sqlite" ? encodeAsText(blockNumber) : BigInt(blockNumber),
+        )
+        .executeTakeFirst();
+
+      return result?.result ?? null;
+    }),
 });
-
-const blockCheckpointSQLite = `
-substr(timestamp, -10, 10) ||
-substr('0000000000000000' || chain_id, -16, 16) ||
-substr(number, -16, 16) ||
-'9999999999999999' ||
-'5' ||
-'0000000000000000'`;
-
-const blockCheckpointPostgres = `
-substr(timestamp, -10, 10) ||
-substr('0000000000000000' || chain_id, -16, 16) ||
-substr(number, -16, 16) ||
-'9999999999999999' ||
-'5' ||
-'0000000000000000'`;

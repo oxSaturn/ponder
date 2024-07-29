@@ -37,9 +37,3 @@ export const getFilterId = <type extends "event" | "address">(
   type: type,
   filter: type extends "address" ? AddressFilter : Filter,
 ) => `${type}_${JSON.stringify(filter)}`;
-
-// export const isLogFilter = (filter: Filter): filter is LogFilter =>
-//   filter.type === "log";
-
-// export const isBlockFilter = (filter: Filter): filter is BlockFilter =>
-//   filter.type === "block";

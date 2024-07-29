@@ -16,16 +16,7 @@ import {
   getRpcUrlsForClient,
   isRpcUrlPublic,
 } from "@/config/networks.js";
-import {
-  type BlockSource,
-  type CallTraceSource,
-  type FactoryCallTraceSource,
-  type FactoryLogSource,
-  type LogSource,
-  sourceIsCallTrace,
-  sourceIsFactoryCallTrace,
-} from "@/config/sources.js";
-import type { Source } from "@/sync/source.js";
+import type { BlockSource, ContractSource } from "@/sync/source.js";
 import { chains } from "@/utils/chains.js";
 import { toLowerCase } from "@/utils/lowercase.js";
 import { dedupe } from "@ponder/common";
@@ -318,12 +309,14 @@ export async function buildConfigAndIndexingFunctions({
     logs.push({ level: "warn", msg: "No indexing functions were registered." });
   }
 
-  const contractSources: Source[] = Object.entries(config.contracts ?? {})
+  const contractSources: ContractSource[] = Object.entries(
+    config.contracts ?? {},
+  )
     // First, apply any network-specific overrides and flatten the result.
-    .flatMap(([contractName, contract]) => {
+    .flatMap(([name, contract]) => {
       if (contract.network === null || contract.network === undefined) {
         throw new Error(
-          `Validation failed: Network for contract '${contractName}' is null or undefined. Expected one of [${networks
+          `Validation failed: Network for contract '${name}' is null or undefined. Expected one of [${networks
             .map((n) => `'${n.name}'`)
             .join(", ")}].`,
         );
@@ -340,15 +333,14 @@ export async function buildConfigAndIndexingFunctions({
 
       if (endBlock !== undefined && endBlock < startBlock) {
         throw new Error(
-          `Validation failed: Start block for contract '${contractName}' is after end block (${startBlock} > ${endBlock}).`,
+          `Validation failed: Start block for contract '${name}' is after end block (${startBlock} > ${endBlock}).`,
         );
       }
 
       // Single network case.
       if (typeof contract.network === "string") {
         return {
-          id: `log_${contractName}_${contract.network}`,
-          contractName,
+          name,
           networkName: contract.network,
           abi: contract.abi,
 
@@ -362,7 +354,6 @@ export async function buildConfigAndIndexingFunctions({
 
           startBlock,
           endBlock,
-          maxBlockRange: contract.maxBlockRange,
         };
       }
 
@@ -386,12 +377,12 @@ export async function buildConfigAndIndexingFunctions({
 
           if (endBlock !== undefined && endBlock < startBlock) {
             throw new Error(
-              `Validation failed: Start block for contract '${contractName}' is after end block (${startBlock} > ${endBlock}).`,
+              `Validation failed: Start block for contract '${name}' is after end block (${startBlock} > ${endBlock}).`,
             );
           }
 
           return {
-            contractName,
+            name,
             networkName,
             abi: contract.abi,
 
@@ -419,13 +410,11 @@ export async function buildConfigAndIndexingFunctions({
         });
     })
     // Second, build and validate the factory or log source.
-    .flatMap((rawContract): Source[] => {
+    .flatMap((rawContract): ContractSource[] => {
       const network = networks.find((n) => n.name === rawContract.networkName);
       if (!network) {
         throw new Error(
-          `Validation failed: Invalid network for contract '${
-            rawContract.contractName
-          }'. Got '${rawContract.networkName}', expected one of [${networks
+          `Validation failed: Invalid network for contract '${rawContract.name}'. Got '${rawContract.networkName}', expected one of [${networks
             .map((n) => `'${n.name}'`)
             .join(", ")}].`,
         );
@@ -442,7 +431,7 @@ export async function buildConfigAndIndexingFunctions({
             string,
           ];
           if (
-            logContractName === rawContract.contractName &&
+            logContractName === rawContract.name &&
             logEventName !== "setup"
           ) {
             registeredLogEvents.push(logEventName);
@@ -455,7 +444,7 @@ export async function buildConfigAndIndexingFunctions({
             string,
             string,
           ];
-          if (functionContractName === rawContract.contractName) {
+          if (functionContractName === rawContract.name) {
             registeredCallTraceEvents.push(functionName);
           }
         }
@@ -506,7 +495,7 @@ export async function buildConfigAndIndexingFunctions({
           rawContract.filter.args !== undefined
         ) {
           throw new Error(
-            `Validation failed: Event filter for contract '${rawContract.contractName}' cannot contain indexed argument values if multiple events are provided.`,
+            `Validation failed: Event filter for contract '${rawContract.name}' cannot contain indexed argument values if multiple events are provided.`,
           );
         }
 
@@ -519,7 +508,7 @@ export async function buildConfigAndIndexingFunctions({
           if (!abiEvent) {
             throw new Error(
               `Validation failed: Invalid filter for contract '${
-                rawContract.contractName
+                rawContract.name
               }'. Got event name '${filterSafeEventName}', expected one of [${Object.keys(
                 abiEvents.bySafeName,
               )
@@ -552,7 +541,7 @@ export async function buildConfigAndIndexingFunctions({
 
             throw new Error(
               `Validation failed: Event '${logEventName}' is excluded by the event filter defined on the contract '${
-                rawContract.contractName
+                rawContract.name
               }'. Got '${logEventName}', expected one of [${filteredEventSelectors
                 .map((s) => abiEvents.bySelector[s]!.safeName)
                 .map((eventName) => `'${eventName}'`)
@@ -564,22 +553,19 @@ export async function buildConfigAndIndexingFunctions({
         topics = [registeredEventSelectors, ...topicsFromFilter];
       }
 
-      const baseContract = {
-        contractName: rawContract.contractName,
-        networkName: rawContract.networkName,
-        chainId: network.chainId,
+      const contractMetadata = {
+        type: "contract",
         abi: rawContract.abi,
-        startBlock: rawContract.startBlock,
-        endBlock: rawContract.endBlock,
-        maxBlockRange: rawContract.maxBlockRange,
-      };
+        name: rawContract.name,
+        networkName: rawContract.networkName,
+      } as const;
 
       const resolvedFactory = rawContract?.factory;
       const resolvedAddress = rawContract?.address;
 
       if (resolvedFactory !== undefined && resolvedAddress !== undefined) {
         throw new Error(
-          `Validation failed: Contract '${baseContract.contractName}' cannot specify both 'factory' and 'address' options.`,
+          `Validation failed: Contract '${contractMetadata.name}' cannot specify both 'factory' and 'address' options.`,
         );
       }
 
@@ -587,37 +573,39 @@ export async function buildConfigAndIndexingFunctions({
         // Note that this can throw.
         const childAddressCriteria = buildChildAddressCriteria(resolvedFactory);
 
-        const factoryLogSource = {
-          ...baseContract,
-          id: `log_${rawContract.contractName}_${rawContract.networkName}`,
-          type: "factoryLog",
-          abiEvents: abiEvents,
-          criteria: {
-            ...childAddressCriteria,
-            includeTransactionReceipts: rawContract.includeTransactionReceipts,
+        const source = {
+          ...contractMetadata,
+          filter: {
+            type: "log",
+            chainId: network.chainId,
+            address: { ...childAddressCriteria, chainId: network.chainId },
             topics,
+            fromBlock: rawContract.startBlock,
+            toBlock: rawContract.endBlock,
           },
-        } satisfies FactoryLogSource;
+        } satisfies ContractSource;
 
-        if (rawContract.includeCallTraces) {
-          return [
-            factoryLogSource,
-            {
-              ...baseContract,
-              id: `callTrace_${rawContract.contractName}_${rawContract.networkName}`,
-              type: "factoryCallTrace",
-              abiFunctions,
-              criteria: {
-                ...childAddressCriteria,
-                functionSelectors: registeredFunctionSelectors,
-                includeTransactionReceipts:
-                  rawContract.includeTransactionReceipts,
-              },
-            } satisfies FactoryCallTraceSource,
-          ];
-        }
+        return [source];
 
-        return [factoryLogSource];
+        // if (rawContract.includeCallTraces) {
+        //   return [
+        //     factoryLogSource,
+        //     {
+        //       ...baseContract,
+        //       id: `callTrace_${rawContract.contractName}_${rawContract.networkName}`,
+        //       type: "factoryCallTrace",
+        //       abiFunctions,
+        //       criteria: {
+        //         ...childAddressCriteria,
+        //         functionSelectors: registeredFunctionSelectors,
+        //         includeTransactionReceipts:
+        //           rawContract.includeTransactionReceipts,
+        //       },
+        //     } satisfies FactoryCallTraceSource,
+        //   ];
+        // }
+
+        // return [factoryLogSource];
       }
 
       const validatedAddress = Array.isArray(resolvedAddress)
@@ -644,68 +632,58 @@ export async function buildConfigAndIndexingFunctions({
         }
       }
 
-      const logSource = {
-        // ...baseContract,
-        // fu
-        // id: `log_${rawContract.contractName}_${rawContract.networkName}`,
-        // type: "log",
-        // abiEvents: abiEvents,
-        // criteria: {
-        //   address: validatedAddress,
-        //   topics,
-        //   includeTransactionReceipts: rawContract.includeTransactionReceipts,
-        // },
+      const source = {
+        ...contractMetadata,
         filter: {
           type: "log",
           chainId: network.chainId,
           address: validatedAddress,
           topics,
-          fromBlock: baseContract.startBlock,
-          toBlock: baseContract.endBlock,
+          fromBlock: rawContract.startBlock,
+          toBlock: rawContract.endBlock,
         },
-      } satisfies Source;
+      } satisfies ContractSource;
 
-      if (rawContract.includeCallTraces) {
-        return [
-          logSource,
-          {
-            ...baseContract,
-            id: `callTrace_${rawContract.contractName}_${rawContract.networkName}`,
-            type: "callTrace",
-            abiFunctions,
-            criteria: {
-              toAddress: Array.isArray(validatedAddress)
-                ? validatedAddress
-                : validatedAddress === undefined
-                  ? undefined
-                  : [validatedAddress],
-              functionSelectors: registeredFunctionSelectors,
-              includeTransactionReceipts:
-                rawContract.includeTransactionReceipts,
-            },
-          } satisfies CallTraceSource,
-        ];
-      } else return [logSource];
+      return [source];
+
+      // if (rawContract.includeCallTraces) {
+      //   return [
+      //     logSource,
+      //     {
+      //       ...baseContract,
+      //       id: `callTrace_${rawContract.contractName}_${rawContract.networkName}`,
+      //       type: "callTrace",
+      //       abiFunctions,
+      //       criteria: {
+      //         toAddress: Array.isArray(validatedAddress)
+      //           ? validatedAddress
+      //           : validatedAddress === undefined
+      //             ? undefined
+      //             : [validatedAddress],
+      //         functionSelectors: registeredFunctionSelectors,
+      //         includeTransactionReceipts:
+      //           rawContract.includeTransactionReceipts,
+      //       },
+      //     } satisfies CallTraceSource,
+      //   ];
+      // } else return [source];
+    })
+    // Remove sources with no registered indexing functions
+    .filter((source) => {
+      const hasRegisteredIndexingFunctions =
+        source.filter.topics?.[0]?.length !== 0;
+
+      if (hasRegisteredIndexingFunctions === false) {
+        logs.push({
+          level: "debug",
+          msg: `No indexing functions were registered for '${source.name}' logs`,
+        });
+      }
+      return hasRegisteredIndexingFunctions;
     });
-  // Remove sources with no registered indexing functions
-  // .filter((source) => {
-  //   const hasRegisteredIndexingFunctions =
-  //     sourceIsCallTrace(source) || sourceIsFactoryCallTrace(source)
-  //       ? source.criteria.functionSelectors.length !== 0
-  //       : source.criteria.topics[0]?.length !== 0;
-  //   if (!hasRegisteredIndexingFunctions) {
-  //     logs.push({
-  //       level: "debug",
-  //       msg: `No indexing functions were registered for '${
-  //         source.contractName
-  //       }' ${sourceIsCallTrace(source) ? "call traces" : "logs"}`,
-  //     });
-  //   }
-  //   return hasRegisteredIndexingFunctions;
-  // });
 
   const blockSources: BlockSource[] = Object.entries(config.blocks ?? {})
-    .flatMap(([sourceName, blockSourceConfig]) => {
+    .flatMap(([name, blockSourceConfig]) => {
       const startBlockMaybeNan = blockSourceConfig.startBlock ?? 0;
       const startBlock = Number.isNaN(startBlockMaybeNan)
         ? 0
@@ -717,7 +695,7 @@ export async function buildConfigAndIndexingFunctions({
 
       if (endBlock !== undefined && endBlock < startBlock) {
         throw new Error(
-          `Validation failed: Start block for block source '${sourceName}' is after end block (${startBlock} > ${endBlock}).`,
+          `Validation failed: Start block for block source '${name}' is after end block (${startBlock} > ${endBlock}).`,
         );
       }
 
@@ -726,7 +704,7 @@ export async function buildConfigAndIndexingFunctions({
 
       if (!Number.isInteger(interval) || interval === 0) {
         throw new Error(
-          `Validation failed: Invalid interval for block source '${sourceName}'. Got ${interval}, expected a non-zero integer.`,
+          `Validation failed: Invalid interval for block source '${name}'. Got ${interval}, expected a non-zero integer.`,
         );
       }
 
@@ -736,7 +714,7 @@ export async function buildConfigAndIndexingFunctions({
         );
         if (!network) {
           throw new Error(
-            `Validation failed: Invalid network for block source '${sourceName}'. Got '${
+            `Validation failed: Invalid network for block source '${name}'. Got '${
               blockSourceConfig.network
             }', expected one of [${networks.map((n) => `'${n.name}'`).join(", ")}].`,
           );
@@ -744,17 +722,18 @@ export async function buildConfigAndIndexingFunctions({
 
         return {
           type: "block",
-          id: `block_${sourceName}_${blockSourceConfig.network}`,
-          sourceName,
+          name,
           networkName: blockSourceConfig.network,
-          chainId: network.chainId,
-          startBlock,
-          endBlock,
-          criteria: {
+
+          filter: {
+            type: "block",
+            chainId: network.chainId,
             interval: interval,
             offset: startBlock % interval,
+            fromBlock: startBlock,
+            toBlock: endBlock,
           },
-        } as const;
+        } satisfies BlockSource;
       }
 
       type DefinedNetworkOverride = NonNullable<
@@ -767,7 +746,7 @@ export async function buildConfigAndIndexingFunctions({
           const network = networks.find((n) => n.name === networkName);
           if (!network) {
             throw new Error(
-              `Validation failed: Invalid network for block source '${sourceName}'. Got '${networkName}', expected one of [${networks
+              `Validation failed: Invalid network for block source '${name}'. Got '${networkName}', expected one of [${networks
                 .map((n) => `'${n.name}'`)
                 .join(", ")}].`,
             );
@@ -786,7 +765,7 @@ export async function buildConfigAndIndexingFunctions({
 
           if (endBlock !== undefined && endBlock < startBlock) {
             throw new Error(
-              `Validation failed: Start block for block source '${sourceName}' is after end block (${startBlock} > ${endBlock}).`,
+              `Validation failed: Start block for block source '${name}' is after end block (${startBlock} > ${endBlock}).`,
             );
           }
 
@@ -798,32 +777,32 @@ export async function buildConfigAndIndexingFunctions({
 
           if (!Number.isInteger(interval) || interval === 0) {
             throw new Error(
-              `Validation failed: Invalid interval for block source '${sourceName}'. Got ${interval}, expected a non-zero integer.`,
+              `Validation failed: Invalid interval for block source '${name}'. Got ${interval}, expected a non-zero integer.`,
             );
           }
-
           return {
             type: "block",
-            id: `block_${sourceName}_${networkName}`,
-            sourceName,
+            name,
             networkName,
-            chainId: network.chainId,
-            startBlock,
-            endBlock,
-            criteria: {
+
+            filter: {
+              type: "block",
+              chainId: network.chainId,
               interval: interval,
               offset: startBlock % interval,
+              fromBlock: startBlock,
+              toBlock: endBlock,
             },
-          } as const;
+          } satisfies BlockSource;
         });
     })
     .filter((blockSource) => {
       const hasRegisteredIndexingFunction =
-        indexingFunctions[`${blockSource.sourceName}:block`] !== undefined;
+        indexingFunctions[`${blockSource.name}:block`] !== undefined;
       if (!hasRegisteredIndexingFunction) {
         logs.push({
           level: "debug",
-          msg: `No indexing functions were registered for '${blockSource.sourceName}' blocks`,
+          msg: `No indexing functions were registered for '${blockSource.name}' blocks`,
         });
       }
       return hasRegisteredIndexingFunction;
@@ -832,19 +811,18 @@ export async function buildConfigAndIndexingFunctions({
   const sources = [...contractSources, ...blockSources];
 
   // Filter out any networks that don't have any sources registered.
-  const networksWithSources = networks;
-  // .filter((network) => {
-  //   const hasSources = sources.some(
-  //     (source) => source.networkName === network.name,
-  //   );
-  //   if (!hasSources) {
-  //     logs.push({
-  //       level: "warn",
-  //       msg: `No sources registered for network '${network.name}'`,
-  //     });
-  //   }
-  //   return hasSources;
-  // });
+  const networksWithSources = networks.filter((network) => {
+    const hasSources = sources.some(
+      (source) => source.networkName === network.name,
+    );
+    if (!hasSources) {
+      logs.push({
+        level: "warn",
+        msg: `No sources registered for network '${network.name}'`,
+      });
+    }
+    return hasSources;
+  });
 
   const optionsConfig: Partial<Options> = {};
   if (config.options?.maxHealthcheckDuration !== undefined) {

@@ -1,20 +1,6 @@
 import type { Common } from "@/common/common.js";
 import type { Network } from "@/config/networks.js";
 import {
-  type BlockSource,
-  type CallTraceSource,
-  type EventSource,
-  type FactoryCallTraceSource,
-  type FactoryLogSource,
-  type LogSource,
-  sourceIsBlock,
-  sourceIsCallTrace,
-  sourceIsFactoryCallTrace,
-  sourceIsFactoryLog,
-  sourceIsLog,
-} from "@/config/sources.js";
-import type { SyncStore } from "@/sync-store/store.js";
-import {
   type SyncBlock,
   type SyncCallTrace,
   type SyncLog,
@@ -24,6 +10,7 @@ import {
   _eth_getTransactionReceipt,
   _trace_block,
 } from "@/sync/index.js";
+import type { Source } from "@/sync/source.js";
 import { type Checkpoint, maxCheckpoint } from "@/utils/checkpoint.js";
 import { range } from "@/utils/range.js";
 import type { RequestQueue } from "@/utils/requestQueue.js";
@@ -40,7 +27,7 @@ export type Service = {
   syncStore: SyncStore;
   network: Network;
   requestQueue: RequestQueue;
-  sources: EventSource[];
+  sources: Source[];
 
   // state
   isKilled: boolean;
@@ -104,7 +91,7 @@ export const create = ({
   syncStore: SyncStore;
   network: Network;
   requestQueue: RequestQueue;
-  sources: EventSource[];
+  sources: Source[];
   finalizedBlock: SyncBlock;
   onEvent: (event: RealtimeSyncEvent) => void;
   onFatalError: (error: Error) => void;

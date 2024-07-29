@@ -56,6 +56,7 @@ type LogTable = {
   topic1: Hex | null;
   topic2: Hex | null;
   topic3: Hex | null;
+  data: Hex;
   transaction_hash: Hash;
   body: string;
 };
@@ -75,6 +76,7 @@ export const encodeLog = (
     topic1: log.topics[1] ?? null,
     topic2: log.topics[2] ?? null,
     topic3: log.topics[3] ?? null,
+    data: log.data,
     transaction_hash: log.transactionHash,
     body: encodeBody(formatLog(log)),
   };
@@ -142,6 +144,7 @@ type EventTable = {
   filter_id: string;
   checkpoint: string;
   chain_id: number;
+  data: string | null;
   block_number: string | bigint;
   block_hash: Hash;
   log_index: number;

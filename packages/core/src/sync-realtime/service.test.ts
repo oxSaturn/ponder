@@ -5,12 +5,12 @@ import {
   setupIsolatedDatabase,
 } from "@/_test/setup.js";
 import { getRawRPCData, testClient } from "@/_test/utils.js";
-import type { EventSource } from "@/config/sources.js";
 import {
   type SyncBlock,
   type SyncTrace,
   _eth_getBlockByNumber,
 } from "@/sync/index.js";
+import type { Source } from "@/sync/source.js";
 import { maxCheckpoint } from "@/utils/checkpoint.js";
 import type { RequestQueue } from "@/utils/requestQueue.js";
 import { beforeEach, expect, test, vi } from "vitest";
@@ -25,7 +25,7 @@ beforeEach(setupIsolatedDatabase);
 const getRequestQueue = async ({
   sources,
   requestQueue,
-}: { sources: EventSource[]; requestQueue: RequestQueue }) => {
+}: { sources: Source[]; requestQueue: RequestQueue }) => {
   const rpcData = await getRawRPCData(sources);
 
   return {
@@ -490,7 +490,7 @@ test("handleBlock() gets receipts", async (context) => {
         ({
           ...source,
           criteria: { ...source.criteria, includeTransactionReceipts: true },
-        }) as EventSource,
+        }) as Source,
     ),
     finalizedBlock: finalizedBlock as SyncBlock,
     onEvent: vi.fn(),

@@ -1,15 +1,9 @@
 import type { IndexingFunctions } from "@/build/configAndIndexingFunctions.js";
 import type { Common } from "@/common/common.js";
 import type { Network } from "@/config/networks.js";
-import {
-  type EventSource,
-  type FactoryLogSource,
-  type LogSource,
-  sourceIsFactoryLog,
-  sourceIsLog,
-} from "@/config/sources.js";
 import type { IndexingStore } from "@/indexing-store/store.js";
 import type { Schema } from "@/schema/common.js";
+import type { Source } from "@/sync/source.js";
 import type { DatabaseModel } from "@/types/model.js";
 import type { UserRecord } from "@/types/schema.js";
 import {
@@ -96,7 +90,7 @@ export const create = ({
 }: {
   indexingFunctions: IndexingFunctions;
   common: Common;
-  sources: EventSource[];
+  sources: Source[];
   networks: Network[];
   syncService: SyncService;
   indexingStore: IndexingStore;
@@ -216,7 +210,7 @@ export const processSetupEvents = async (
     sources,
     networks,
   }: {
-    sources: EventSource[];
+    sources: Source[];
     networks: Network[];
   },
 ): Promise<

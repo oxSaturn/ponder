@@ -2,15 +2,8 @@ import { type AddressInfo, createServer } from "node:net";
 import { buildConfigAndIndexingFunctions } from "@/build/configAndIndexingFunctions.js";
 import type { Common } from "@/common/common.js";
 import { createConfig } from "@/config/config.js";
-import {
-  type EventSource,
-  type FactoryLogSource,
-  type LogSource,
-  sourceIsFactoryLog,
-  sourceIsLog,
-} from "@/config/sources.js";
 import type { Status } from "@/indexing-store/store.js";
-import type { RawEvent } from "@/sync-store/store.js";
+import type { RawEvent } from "@/sync/events.js";
 import type {
   SyncBlock,
   SyncCallTrace,
@@ -19,6 +12,7 @@ import type {
   SyncTransaction,
   SyncTransactionReceipt,
 } from "@/sync/index.js";
+import type { Source } from "@/sync/source.js";
 import {
   encodeCheckpoint,
   maxCheckpoint,
@@ -46,7 +40,6 @@ import {
   formatLog,
   formatTransaction,
   getAbiItem,
-  slice,
   toHex,
 } from "viem";
 import { mainnet } from "viem/chains";
@@ -162,9 +155,9 @@ export const getNetworkAndSources = async (
         fn: () => {},
       },
       { name: "Pair:Swap", fn: () => {} },
-      { name: "Pair.swap()", fn: () => {} },
+      // { name: "Pair.swap()", fn: () => {} },
       { name: "OddBlocks:block", fn: () => {} },
-      { name: "Factory.createPair()", fn: () => {} },
+      // { name: "Factory.createPair()", fn: () => {} },
     ],
     options: common.options,
   });
@@ -190,41 +183,16 @@ export const getNetworkAndSources = async (
  * Block 4 has a swap event from the newly created pair.
  * Block 5 is empty.
  */
-export const getRawRPCData = async (sources: EventSource[]) => {
+export const getRawRPCData = async () => {
   const latestBlock = await publicClient.getBlockNumber();
-  const logs = (
-    await Promise.all(
-      sources
-        .filter(
-          (source): source is LogSource | FactoryLogSource =>
-            sourceIsLog(source) || sourceIsFactoryLog(source),
-        )
-        .map((source) =>
-          publicClient.request({
-            method: "eth_getLogs",
-            params: [
-              {
-                address: source.criteria.address,
-                fromBlock: toHex(latestBlock - 3n),
-              },
-            ],
-          }),
-        ),
-    )
-  ).flat();
-
-  // Manually add the child address log
-  logs.push(
-    ...(await publicClient.request({
-      method: "eth_getLogs",
-      params: [
-        {
-          address: slice(logs[2]!.topics[1]!, 12),
-          fromBlock: toHex(latestBlock - 3n),
-        },
-      ],
-    })),
-  );
+  const logs = await publicClient.request({
+    method: "eth_getLogs",
+    params: [
+      {
+        fromBlock: toHex(latestBlock - 3n),
+      },
+    ],
+  });
 
   // Dedupe any repeated blocks and txs
   const blockNumbers: Set<Hex> = new Set();
@@ -503,9 +471,7 @@ export const getRawRPCData = async (sources: EventSource[]) => {
 /**
  * Mock function for `getEvents` that specifically returns the event data for the log and factory sources.
  */
-export const getEventsLog = async (
-  sources: EventSource[],
-): Promise<RawEvent[]> => {
+export const getEventsLog = async (sources: Source[]): Promise<RawEvent[]> => {
   const rpcData = await getRawRPCData(sources);
 
   return [
@@ -574,7 +540,7 @@ export const getEventsLog = async (
  * Mock function for `getEvents` that specifically returns the event data for the block sources.
  */
 export const getEventsBlock = async (
-  sources: EventSource[],
+  sources: Source[],
 ): Promise<RawEvent[]> => {
   const rpcData = await getRawRPCData(sources);
 
@@ -607,7 +573,7 @@ export const getEventsBlock = async (
  * Mock function for `getEvents` that specifically returns the event data for the trace sources.
  */
 export const getEventsTrace = async (
-  sources: EventSource[],
+  sources: Source[],
 ): Promise<RawEvent[]> => {
   const rpcData = await getRawRPCData(sources);
 

@@ -6,13 +6,13 @@ import {
   setupDatabaseServices,
   setupIsolatedDatabase,
 } from "@/_test/setup.js";
-import type { EventSource, LogFilterCriteria } from "@/config/sources.js";
 import type {
   SyncBlock,
   SyncLog,
   SyncTransaction,
   SyncTransactionReceipt,
 } from "@/sync/index.js";
+import type { Source } from "@/sync/source.js";
 import { type Checkpoint, maxCheckpoint } from "@/utils/checkpoint.js";
 import { drainAsyncGenerator } from "@/utils/drainAsyncGenerator.js";
 import { range } from "@/utils/range.js";
@@ -333,7 +333,7 @@ for (const c of LOG_FILTER_CASES) {
                 includeTransactionReceipts: false,
               },
             },
-          ] as EventSource[],
+          ] as Source[],
           toCheckpoint,
           fromCheckpoint,
         });
@@ -374,7 +374,7 @@ for (const c of LOG_FILTER_CASES) {
                 includeTransactionReceipts: false,
               },
             },
-          ] as EventSource[],
+          ] as Source[],
           toCheckpoint,
           fromCheckpoint,
         });
@@ -415,7 +415,7 @@ for (const c of LOG_FILTER_CASES) {
                 includeTransactionReceipts: false,
               },
             },
-          ] as EventSource[],
+          ] as Source[],
           toCheckpoint,
           fromCheckpoint,
         });
