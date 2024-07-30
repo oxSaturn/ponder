@@ -1,3 +1,4 @@
+import type { Common } from "@/common/common.js";
 import type { SyncStore } from "@/sync-store/index.js";
 import type {
   BlockFilter,
@@ -11,20 +12,28 @@ import {
   _eth_getBlockByNumber,
   _eth_getLogs,
 } from "@/sync/index.js";
-import { type Interval, intervalDifference } from "@/utils/interval.js";
+import type { Source } from "@/sync/source.js";
+import { formatPercentage } from "@/utils/format.js";
+import {
+  type Interval,
+  intervalDifference,
+  intervalSum,
+} from "@/utils/interval.js";
 import { never } from "@/utils/never.js";
 import type { RequestQueue } from "@/utils/requestQueue.js";
 import { dedupe } from "@ponder/common";
-import { type Chain, type Hash, hexToBigInt, toHex } from "viem";
+import { type Chain, type Hash, hexToBigInt, hexToNumber, toHex } from "viem";
 
 export type HistoricalSync = {
   /** Closest-to-tip block that is synced. */
   latestBlock: SyncBlock | undefined;
   sync(interval: Interval): Promise<void>;
+  initializeMetrics(finalizedBlock: SyncBlock): void;
 };
 
 type CreateHistoricaSyncParameters = {
-  filters: Filter[];
+  common: Common;
+  sources: Source[];
   syncStore: SyncStore;
   chain: Chain;
   requestQueue: RequestQueue;
@@ -39,8 +48,11 @@ export const createHistoricalSync = async (
   const intervalsCache: Map<Filter, Interval[]> = new Map();
 
   // ...
-  for (const filter of args.filters) {
-    const intervals = await args.syncStore.getIntervals("event", filter);
+  for (const { filter } of args.sources) {
+    const intervals = await args.syncStore.getIntervals({
+      filterType: "event",
+      filter,
+    });
     intervalsCache.set(filter, intervals);
   }
 
@@ -62,7 +74,7 @@ export const createHistoricalSync = async (
       toBlock: interval[1],
     });
 
-    await args.syncStore.insertLogs(logs, args.chain.id);
+    await args.syncStore.insertLogs({ logs, chainId: args.chain.id });
 
     const dedupedBlockNumbers = dedupe(logs.map((l) => l.blockNumber));
     const transactionHashes = new Set(logs.map((l) => l.transactionHash));
@@ -93,7 +105,7 @@ export const createHistoricalSync = async (
       });
       blockCache.set(number, _block);
       block = await _block;
-      await args.syncStore.insertBlock(block, args.chain.id);
+      await args.syncStore.insertBlock({ block, chainId: args.chain.id });
     }
 
     if (hexToBigInt(block.number) > hexToBigInt(latestBlock?.number ?? "0x0")) {
@@ -103,7 +115,10 @@ export const createHistoricalSync = async (
     if (transactionHashes !== undefined) {
       for (const transaction of block.transactions) {
         if (transactionHashes.has(transaction.hash)) {
-          await args.syncStore.insertTransaction(transaction, args.chain.id);
+          await args.syncStore.insertTransaction({
+            transaction,
+            chainId: args.chain.id,
+          });
         }
       }
     }
@@ -117,14 +132,14 @@ export const createHistoricalSync = async (
     },
     sync: async (_interval) => {
       // TODO(kyle) concurrency
-      for (const filter of args.filters) {
+      for (const { filter, ...source } of args.sources) {
         // Compute the required interval to sync, accounting for cached
         // intervals and start + end block.
 
         // Skip sync if the interval is after the `toBlock`.
         if (filter.toBlock && filter.toBlock < _interval[0]) continue;
         const interval: Interval = [
-          Math.max(filter.fromBlock ?? 0, _interval[0]),
+          Math.max(filter.fromBlock, _interval[0]),
           Math.min(filter.toBlock ?? Number.POSITIVE_INFINITY, _interval[1]),
         ];
         const completedIntervals = intervalsCache.get(filter)!;
@@ -152,11 +167,75 @@ export const createHistoricalSync = async (
 
           // Add newly synced data to the "event" table, and then
           // insert into the "interval" table.
-          await args.syncStore.populateEvents(filter, interval);
-          await args.syncStore.insertInterval("event", filter, interval);
+          await args.syncStore.populateEvents({ filter, interval });
+          await args.syncStore.insertInterval({
+            filterType: "event",
+            filter,
+            interval,
+          });
         }
+
+        args.common.metrics.ponder_historical_completed_blocks.inc(
+          {
+            network: source.networkName,
+            source: source.name,
+            type: filter.type,
+          },
+          interval[1] - interval[0] + 1,
+        );
       }
       blockCache.clear();
+    },
+    initializeMetrics(finalizedBlock) {
+      for (const source of args.sources) {
+        const label = {
+          network: source.networkName,
+          source: source.name,
+          type: source.filter.type,
+        };
+
+        if (source.filter.fromBlock > hexToNumber(finalizedBlock.number)) {
+          args.common.metrics.ponder_historical_total_blocks.set(label, 0);
+
+          args.common.logger.warn({
+            service: "historical",
+            msg: `Skipped syncing '${source.networkName}' logs for '${source.name}' because the start block is not finalized`,
+          });
+        } else {
+          const interval = [
+            source.filter.fromBlock,
+            source.filter.toBlock ?? hexToNumber(finalizedBlock.number),
+          ] satisfies Interval;
+
+          const requiredIntervals = intervalDifference(
+            [interval],
+            intervalsCache.get(source.filter)!,
+          );
+
+          const totalBlocks = interval[1] - interval[0] + 1;
+          const cachedBlocks = totalBlocks - intervalSum(requiredIntervals);
+
+          args.common.metrics.ponder_historical_total_blocks.set(
+            label,
+            totalBlocks,
+          );
+
+          args.common.metrics.ponder_historical_cached_blocks.set(
+            label,
+            cachedBlocks,
+          );
+
+          // TODO(kyle) different message for full cache?
+          args.common.logger.info({
+            service: "historical",
+            msg: `Started syncing '${source.networkName}' for '${
+              source.name
+            }' with ${formatPercentage(
+              Math.min(1, cachedBlocks / (totalBlocks || 1)),
+            )} cached`,
+          });
+        }
+      }
     },
   };
 };

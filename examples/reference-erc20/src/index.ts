@@ -29,12 +29,12 @@ ponder.on("ERC20:Transfer", async ({ event, context }) => {
 
   // Create a TransferEvent.
   await TransferEvent.create({
-    id: event.log.id,
+    id: event.id,
     data: {
       fromId: event.args.from,
       toId: event.args.to,
       amount: event.args.amount,
-      timestamp: Number(event.block.timestamp),
+      timestamp: Number(0),
     },
   });
 });
@@ -59,12 +59,12 @@ ponder.on("ERC20:Approval", async ({ event, context }) => {
 
   // Create an ApprovalEvent.
   await ApprovalEvent.create({
-    id: event.log.id,
+    id: event.id,
     data: {
       ownerId: event.args.owner,
       spenderId: event.args.spender,
       amount: event.args.amount,
-      timestamp: Number(event.block.timestamp),
+      timestamp: Number(0),
     },
   });
 });

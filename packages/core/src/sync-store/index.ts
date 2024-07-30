@@ -288,8 +288,17 @@ export const createSyncStore = ({
       .where("chain_id", "=", ksql.ref("log.chain_id"))
       .compile().sql;
 
-    const logDataSQL = `
+    const logDataSQite = `
 json_object(
+  'data', data, 
+  'topic0', topic0, 
+  'topic1', topic1,
+  'topic2', topic2,
+  'topic3', topic3
+)`;
+
+    const logDataPostgres = `
+jsonb_build_object(
   'data', data, 
   'topic0', topic0, 
   'topic1', topic1,
@@ -345,7 +354,9 @@ lpad(number::text, 16, '0') ||
                   )
                   .as("checkpoint"),
                 "chain_id",
-                ksql.raw(logDataSQL).as("data"),
+                ksql
+                  .raw(sql === "sqlite" ? logDataSQite : logDataPostgres)
+                  .as("data"),
                 "block_number",
                 "block_hash",
                 "log_index",
@@ -505,10 +516,11 @@ lpad(number::text, 16, '0') ||
     });
   },
   getEvents: async ({ filters, from, to, limit }) => {
+    const start = performance.now();
     const events = await db.wrap({ method: "getEvents" }, async () => {
       return await db
         .selectFrom("event")
-        .selectAll()
+        .select("checkpoint")
         .where(
           "event.filter_id",
           "in",
@@ -522,6 +534,16 @@ lpad(number::text, 16, '0') ||
         .execute();
     });
 
+    console.log(performance.now() - start);
+
+    // if (sql === "sqlite") {
+    //   for (let i = 0; i < events.length; i++) {
+    //     if (events[i]!.data !== null) {
+    //       events[i]!.data = JSON.parse(events[i]!.data!);
+    //     }
+    //   }
+    // }
+
     let cursor: string;
     if (events.length !== limit) {
       cursor = to;
@@ -529,7 +551,7 @@ lpad(number::text, 16, '0') ||
       cursor = events[events.length - 1]!.checkpoint;
     }
 
-    return { events, cursor };
+    return { events: events as RawEvent[], cursor };
   },
   getEventCount: async ({ filters }) =>
     db.wrap({ method: "getEventCount" }, async () => {

@@ -10,14 +10,15 @@ import {
 } from "@/utils/checkpoint.js";
 import type { Interval } from "@/utils/interval.js";
 import { type RequestQueue, createRequestQueue } from "@/utils/requestQueue.js";
-import { type Chain, hexToBigInt, hexToNumber } from "viem";
+import { type Chain, type Transport, hexToBigInt, hexToNumber } from "viem";
 import type { RawEvent } from "./events.js";
-import type { Filter } from "./filter.js";
 import { type SyncBlock, _eth_getBlockByNumber } from "./index.js";
 import type { Source } from "./source.js";
+import { cachedTransport } from "./transport.js";
 
 export type Sync = {
   getEvents(): AsyncGenerator<RawEvent[]>;
+  getCachedTransport(network: Network): Transport;
 };
 
 type CreateSyncParameters = {
@@ -39,7 +40,7 @@ type LocalSync = {
 const createLocalSync = async (args: {
   common: Common;
   syncStore: SyncStore;
-  filters: Filter[];
+  sources: Source[];
   network: Network;
 }): Promise<LocalSync> => {
   const requestQueue = createRequestQueue({
@@ -48,14 +49,16 @@ const createLocalSync = async (args: {
   });
 
   /** Earliest `startBlock` among all `filters` */
-  const start = Math.min(...args.filters.map((f) => f.fromBlock ?? 0));
+  const start = Math.min(
+    ...args.sources.map(({ filter }) => filter.fromBlock ?? 0),
+  );
   /**
    * Latest `endBlock` among all filters. `undefined` if at least one
    * of the filters doesn't have an `endBlock`.
    */
-  const end = args.filters.some((f) => f.toBlock === undefined)
+  const end = args.sources.some(({ filter }) => filter.toBlock === undefined)
     ? undefined
-    : Math.min(...args.filters.map((f) => f.toBlock!));
+    : Math.min(...args.sources.map(({ filter }) => filter.toBlock!));
 
   const [remoteChainId, startBlock, endBlock, latestBlock] = await Promise.all([
     requestQueue.request({ method: "eth_chainId" }),
@@ -87,15 +90,17 @@ const createLocalSync = async (args: {
   );
 
   const historicalSync = await createHistoricalSync({
-    filters: args.filters,
+    common: args.common,
+    sources: args.sources,
     syncStore: args.syncStore,
     chain: args.network.chain,
     requestQueue,
   });
+  historicalSync.initializeMetrics(finalizedBlock);
 
   /** ... */
   // TODO(kyle) dynamic, use diagnostics
-  const blocksPerEvent = 0.25 / args.filters.length;
+  const blocksPerEvent = 0.25 / args.sources.length;
   let fromBlock = hexToNumber(startBlock.number);
 
   return {
@@ -132,9 +137,9 @@ export const createSync = async (args: CreateSyncParameters): Promise<Sync> => {
       const localSync = await createLocalSync({
         common: args.common,
         syncStore: args.syncStore,
-        filters: args.sources
-          .map(({ filter }) => filter)
-          .filter((f) => f.chainId === network.chain.id),
+        sources: args.sources.filter(
+          ({ filter }) => filter.chainId === network.chain.id,
+        ),
         network,
       });
       localSyncs.set(network.chain, localSync);
@@ -202,7 +207,7 @@ export const createSync = async (args: CreateSyncParameters): Promise<Sync> => {
           filters: args.sources.map(({ filter }) => filter),
           from,
           to,
-          limit: 1_000,
+          limit: 10_000,
         });
 
         yield events;
@@ -222,5 +227,9 @@ export const createSync = async (args: CreateSyncParameters): Promise<Sync> => {
 
   return {
     getEvents: getEventsOmni,
+    getCachedTransport(network) {
+      const { requestQueue } = localSyncs.get(network.chain)!;
+      return cachedTransport({ requestQueue, syncStore: args.syncStore });
+    },
   };
 };

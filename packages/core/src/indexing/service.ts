@@ -3,11 +3,11 @@ import type { Common } from "@/common/common.js";
 import type { Network } from "@/config/networks.js";
 import type { IndexingStore } from "@/indexing-store/store.js";
 import type { Schema } from "@/schema/common.js";
-import type { Source } from "@/sync/source.js";
+import type { Sync } from "@/sync/index2.js";
+import type { ContractSource, Source } from "@/sync/source.js";
 import type { DatabaseModel } from "@/types/model.js";
 import type { UserRecord } from "@/types/schema.js";
 import {
-  type Checkpoint,
   decodeCheckpoint,
   encodeCheckpoint,
   zeroCheckpoint,
@@ -16,7 +16,7 @@ import { never } from "@/utils/never.js";
 import { prettyPrint } from "@/utils/print.js";
 import { startClock } from "@/utils/timer.js";
 import type { Abi, Address } from "viem";
-import { checksumAddress, createClient } from "viem";
+import { createClient } from "viem";
 import type {
   BlockEvent,
   CallTraceEvent,
@@ -59,7 +59,6 @@ export type Service = {
   eventCount: {
     [eventName: string]: { [networkName: string]: number };
   };
-  startCheckpoint: Checkpoint;
 
   /**
    * Reduce memory usage by reserving space for objects ahead of time
@@ -84,7 +83,7 @@ export const create = ({
   common,
   sources,
   networks,
-  syncService,
+  sync,
   indexingStore,
   schema,
 }: {
@@ -92,7 +91,7 @@ export const create = ({
   common: Common;
   sources: Source[];
   networks: Network[];
-  syncService: SyncService;
+  sync: Sync;
   indexingStore: IndexingStore;
   schema: Schema;
 }): Service => {
@@ -112,37 +111,37 @@ export const create = ({
   );
 
   // build contractsByChainId
-  for (const source of sources) {
-    if (source.type === "block") continue;
+  // for (const source of sources) {
+  //   if (source.type === "block") continue;
 
-    const address =
-      source.type === "factoryCallTrace" || source.type === "factoryLog"
-        ? undefined
-        : source.type === "callTrace"
-          ? source.criteria.toAddress!.length === 1
-            ? source.criteria.toAddress![0]
-            : undefined
-          : typeof source.criteria.address === "string"
-            ? source.criteria.address
-            : undefined;
+  //   const address =
+  //     source.type === "factoryCallTrace" || source.type === "factoryLog"
+  //       ? undefined
+  //       : source.type === "callTrace"
+  //         ? source.criteria.toAddress!.length === 1
+  //           ? source.criteria.toAddress![0]
+  //           : undefined
+  //         : typeof source.criteria.address === "string"
+  //           ? source.criteria.address
+  //           : undefined;
 
-    if (contractsByChainId[source.chainId] === undefined) {
-      contractsByChainId[source.chainId] = {};
-    }
+  //   if (contractsByChainId[source.chainId] === undefined) {
+  //     contractsByChainId[source.chainId] = {};
+  //   }
 
-    // Note: multiple sources with the same contract (logs and traces)
-    // should only create one entry in the `contracts` object
-    if (contractsByChainId[source.chainId]![source.contractName] !== undefined)
-      continue;
+  //   // Note: multiple sources with the same contract (logs and traces)
+  //   // should only create one entry in the `contracts` object
+  //   if (contractsByChainId[source.chainId]![source.contractName] !== undefined)
+  //     continue;
 
-    contractsByChainId[source.chainId]![source.contractName] = {
-      abi: source.abi,
-      address: address ? checksumAddress(address) : address,
-      startBlock: source.startBlock,
-      endBlock: source.endBlock,
-      maxBlockRange: source.maxBlockRange,
-    };
-  }
+  //   contractsByChainId[source.chainId]![source.contractName] = {
+  //     abi: source.abi,
+  //     address: address ? checksumAddress(address) : address,
+  //     startBlock: source.startBlock,
+  //     endBlock: source.endBlock,
+  //     maxBlockRange: source.maxBlockRange,
+  //   };
+  // }
 
   // build db
   const db = buildDb({ common, schema, indexingStore, contextState });
@@ -152,7 +151,7 @@ export const create = ({
 
   // build clientByChainId
   for (const network of networks) {
-    const transport = syncService.getCachedTransport(network);
+    const transport = sync.getCachedTransport(network);
     clientByChainId[network.chainId] = createClient({
       transport,
       chain: network.chain,
@@ -174,7 +173,6 @@ export const create = ({
     indexingStore,
     isKilled: false,
     eventCount,
-    startCheckpoint: syncService.startCheckpoint,
     currentEvent: {
       contextState,
       context: {
@@ -226,10 +224,10 @@ export const processSetupEvents = async (
     for (const network of networks) {
       const source = sources.find(
         (s) =>
-          (sourceIsLog(s) || sourceIsFactoryLog(s)) &&
-          s.contractName === contractName &&
-          s.chainId === network.chainId,
-      )! as LogSource | FactoryLogSource;
+          s.type === "contract" &&
+          s.name === contractName &&
+          s.networkName === network.name,
+      )! as ContractSource;
 
       if (indexingService.isKilled) return { status: "killed" };
       indexingService.eventCount[eventName]![source.networkName]!++;
@@ -238,12 +236,12 @@ export const processSetupEvents = async (
         event: {
           type: "setup",
           chainId: network.chainId,
-          contractName: source.contractName,
-          startBlock: BigInt(source.startBlock),
+          contractName: source.name,
+          startBlock: BigInt(source.filter.fromBlock),
           encodedCheckpoint: encodeCheckpoint({
             ...zeroCheckpoint,
             chainId: BigInt(network.chainId),
-            blockNumber: BigInt(source.startBlock),
+            blockNumber: BigInt(source.filter.fromBlock),
           }),
         },
       });
@@ -282,7 +280,7 @@ export const processEvents = async (
 
         indexingService.common.logger.trace({
           service: "indexing",
-          msg: `Started indexing function (event="${eventName}", checkpoint=${event.encodedCheckpoint})`,
+          msg: `Started indexing function (event="${eventName}", checkpoint=${event.checkpoint})`,
         });
 
         const result = await executeLog(indexingService, { event });
@@ -295,7 +293,7 @@ export const processEvents = async (
 
         indexingService.common.logger.trace({
           service: "indexing",
-          msg: `Completed indexing function (event="${eventName}", checkpoint=${event.encodedCheckpoint})`,
+          msg: `Completed indexing function (event="${eventName}", checkpoint=${event.checkpoint})`,
         });
 
         break;
@@ -506,20 +504,13 @@ const executeLog = async (
     currentEvent.context.network.name = networkByChainId[event.chainId]!.name;
     currentEvent.context.client = clientByChainId[event.chainId]!;
     currentEvent.context.contracts = contractsByChainId[event.chainId]!;
-    currentEvent.contextState.encodedCheckpoint = event.encodedCheckpoint;
-    currentEvent.contextState.blockNumber = event.event.block.number;
+    currentEvent.contextState.encodedCheckpoint = event.checkpoint;
+    // currentEvent.contextState.blockNumber = event.event.block.number;
 
     const endClock = startClock();
 
     await indexingFunction!({
-      event: {
-        name: event.logEventName,
-        args: event.event.args,
-        log: event.event.log,
-        block: event.event.block,
-        transaction: event.event.transaction,
-        transactionReceipt: event.event.transactionReceipt,
-      },
+      event: event.event,
       context: currentEvent.context,
     });
 
@@ -533,7 +524,7 @@ const executeLog = async (
 
     common.metrics.ponder_indexing_function_error_total.inc(metricLabel);
 
-    const decodedCheckpoint = decodeCheckpoint(event.encodedCheckpoint);
+    const decodedCheckpoint = decodeCheckpoint(event.checkpoint);
 
     addStackTrace(error, common.options);
 

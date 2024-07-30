@@ -7,7 +7,7 @@ export type LogFilter = {
   chainId: number;
   address?: Address | Address[] | AddressFilter;
   topics?: LogTopic[];
-  fromBlock?: number;
+  fromBlock: number;
   toBlock?: number;
 };
 
@@ -16,7 +16,7 @@ export type BlockFilter = {
   chainId: number;
   interval?: number;
   offset?: number;
-  fromBlock?: number;
+  fromBlock: number;
   toBlock?: number;
 };
 

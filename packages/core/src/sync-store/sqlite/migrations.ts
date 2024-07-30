@@ -1177,6 +1177,12 @@ const migrations: Record<string, Migration> = {
         .on("event")
         .columns(["transaction_hash", "chain_id"])
         .execute();
+
+      await db.schema
+        .createIndex("event_filter_id_index")
+        .on("event")
+        .column("filter_id")
+        .execute();
     },
   },
 };

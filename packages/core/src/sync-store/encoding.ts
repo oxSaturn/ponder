@@ -143,8 +143,8 @@ type IntervalTable = {
 type EventTable = {
   filter_id: string;
   checkpoint: string;
-  chain_id: number;
   data: string | null;
+  chain_id: number;
   block_number: string | bigint;
   block_hash: Hash;
   log_index: number;

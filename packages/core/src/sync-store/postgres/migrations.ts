@@ -913,6 +913,7 @@ const migrations: Record<string, Migration> = {
         .addColumn("topic1", "varchar(66)")
         .addColumn("topic2", "varchar(66)")
         .addColumn("topic3", "varchar(66)")
+        .addColumn("data", "text", (col) => col.notNull())
         .addColumn("transaction_hash", "varchar(66)", (col) => col.notNull())
         .addColumn("body", "jsonb", (col) => col.notNull())
         .addPrimaryKeyConstraint("log_primary_key", [
@@ -1043,7 +1044,7 @@ const migrations: Record<string, Migration> = {
         .addColumn("filter_id", "text", (col) => col.notNull())
         .addColumn("checkpoint", "varchar(75)", (col) => col.notNull())
         .addColumn("chain_id", "integer", (col) => col.notNull())
-        // .addColumn("data", "json")
+        .addColumn("data", "jsonb")
         .addColumn("block_number", "numeric(78, 0)", (col) => col.notNull())
         .addColumn("block_hash", "varchar(66)", (col) => col.notNull())
         .addColumn("log_index", "integer")
@@ -1051,7 +1052,6 @@ const migrations: Record<string, Migration> = {
         .addPrimaryKeyConstraint("event_primary_key", [
           "filter_id",
           "checkpoint",
-          "chain_id",
         ])
         .execute();
 

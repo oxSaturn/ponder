@@ -11,7 +11,7 @@ import { getRealtimeStore } from "@/indexing-store/realtime.js";
 import type { IndexingStore, Status } from "@/indexing-store/store.js";
 import { createIndexingService } from "@/indexing/index.js";
 import { createSyncStore } from "@/sync-store/index.js";
-import type { Event } from "@/sync/events.js";
+import { type Event, decodeEvents } from "@/sync/events.js";
 import { createSync } from "@/sync/index2.js";
 import {
   type Checkpoint,
@@ -212,15 +212,15 @@ export async function run({
 
   let indexingStore: IndexingStore = historicalStore;
 
-  // const indexingService = createIndexingService({
-  //   indexingFunctions,
-  //   common,
-  //   indexingStore,
-  //   sources,
-  //   networks,
-  //   syncService,
-  //   schema,
-  // });
+  const indexingService = createIndexingService({
+    indexingFunctions,
+    common,
+    indexingStore,
+    sources,
+    networks,
+    sync,
+    schema,
+  });
 
   const start = async () => {
     // If the initial checkpoint is zero, we need to run setup events.
@@ -238,13 +238,8 @@ export async function run({
     // }
 
     // Run historical indexing until complete.
-    for await (const rawEvents of sync.getEvents()) {
-      // const result = await handleEvents(
-      //   decodeEvents(syncService, rawEvents),
-      // );
-
-      console.log("YES", rawEvents.length);
-
+    for await (const events of sync.getEvents()) {
+      // const result = await handleEvents(decodeEvents({ sources, events }));
       // if (result.status === "killed") {
       //   return;
       // } else if (result.status === "error") {
@@ -304,7 +299,7 @@ export async function run({
   const startPromise = start();
 
   return async () => {
-    // indexingService.kill();
+    indexingService.kill();
     // await syncService.kill();
     realtimeQueue.pause();
     realtimeQueue.clear();

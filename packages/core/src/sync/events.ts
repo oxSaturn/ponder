@@ -6,9 +6,14 @@ import type {
   Transaction,
   TransactionReceipt,
 } from "@/types/eth.js";
-import type { Hex } from "viem";
+import type { AbiEvent } from "abitype";
+import { type Hex, decodeEventLog, getEventSelector } from "viem";
+import { getFilterId } from "./filter.js";
+import type { Source } from "./source.js";
 
-export type RawEvent = PonderSyncSchema["event"];
+export type RawEvent = Exclude<PonderSyncSchema["event"], "data"> & {
+  data: object | null;
+};
 
 export type RawLogData = {
   data: Hex;
@@ -33,12 +38,13 @@ export type LogEvent = {
   logEventName: string;
   event: {
     args: any;
+    id: string;
     log: Log;
     block: Block;
     transaction: Transaction;
     transactionReceipt?: TransactionReceipt;
   };
-  encodedCheckpoint: string;
+  checkpoint: string;
 };
 
 export type BlockEvent = {
@@ -69,127 +75,59 @@ export type CallTraceEvent = {
 
 export type Event = LogEvent | BlockEvent | CallTraceEvent;
 
-// export const decodeEvents = (
-//   { common, sourceById }: Pick<Service, "sourceById" | "common">,
-//   rawEvents: RawEvent[],
-// ): Event[] => {
-//   const events: Event[] = [];
+export const decodeEvents = (args: {
+  sources: Source[];
+  events: RawEvent[];
+}): Event[] => {
+  const abiCache: { [filterId: string]: { [selector: Hex]: AbiEvent } } = {};
+  const nameCache: { [filterId: string]: string } = {};
 
-//   for (const event of rawEvents) {
-//     const source = sourceById[event.sourceId]!;
+  for (const source of args.sources) {
+    if (source.type === "block") continue;
 
-//     switch (source.type) {
-//       case "block": {
-//         events.push({
-//           type: "block",
-//           chainId: event.chainId,
-//           sourceName: source.sourceName,
-//           event: {
-//             block: event.block,
-//           },
-//           encodedCheckpoint: event.encodedCheckpoint,
-//         });
-//         break;
-//       }
+    const filterId = getFilterId("event", source.filter);
+    abiCache[filterId] = {};
+    nameCache[filterId] = source.name;
 
-//       case "callTrace":
-//       case "factoryCallTrace": {
-//         try {
-//           const abi = source.abi;
+    for (const item of source.abi) {
+      if (item.type !== "event") continue;
+      const selector = getEventSelector(item);
+      abiCache[filterId]![selector] = item;
+    }
+  }
 
-//           const data = decodeFunctionData({
-//             abi,
-//             data: event.trace!.input,
-//           });
+  for (let i = 0; i < args.events.length; i++) {
+    const event = args.events[i]!;
+    const data = event.data! as RawLogData;
 
-//           const result = decodeFunctionResult({
-//             abi,
-//             data: event.trace!.output,
-//             functionName: data.functionName,
-//           });
+    const abiItem = abiCache[event.filter_id]![data.topic0!]!;
+    const _args = decodeEventLog({
+      abi: [abiItem],
+      data: data.data,
+      topics: [data.topic0!, data.topic1!, data.topic2!, data.topic3!],
+    }).args;
+    const name = nameCache[event.filter_id]!;
+    // @ts-ignore
+    event.data = undefined;
+    // @ts-ignore
+    event.filter_id = undefined;
+    // @ts-ignore
+    event.type = "log";
+    // @ts-ignore
+    event.chainId = event.chain_id;
+    // @ts-ignore
+    event.chain_id = undefined;
+    // @ts-ignore
+    event.contractName = name;
+    // @ts-ignore
+    event.logEventName = abiItem.name;
+    // @ts-ignore
+    event.event = {};
+    // @ts-ignore
+    event.event.args = _args;
+    // @ts-ignore
+    event.event.id = event.checkpoint;
+  }
 
-//           const selector = event.trace!.input.slice(0, 10) as Hex;
-
-//           if (source.abiFunctions.bySelector[selector] === undefined) {
-//             throw new Error();
-//           }
-
-//           const functionName =
-//             source.abiFunctions.bySelector[selector]!.safeName;
-
-//           events.push({
-//             type: "callTrace",
-//             chainId: event.chainId,
-//             contractName: source.contractName,
-//             functionName,
-//             event: {
-//               args: data.args,
-//               result,
-//               trace: event.trace!,
-//               block: event.block,
-//               transaction: event.transaction!,
-//               transactionReceipt: event.transactionReceipt,
-//             },
-//             encodedCheckpoint: event.encodedCheckpoint,
-//           });
-//         } catch (err) {
-//           common.logger.debug({
-//             service: "app",
-//             msg: `Unable to decode trace, skipping it. id: ${event.trace?.id}, input: ${event.trace?.input}, output: ${event.trace?.output}`,
-//           });
-//         }
-//         break;
-//       }
-
-//       case "log":
-//       case "factoryLog": {
-//         try {
-//           const abi = source.abi;
-
-//           const decodedLog = decodeEventLog({
-//             abi,
-//             data: event.log!.data,
-//             topics: event.log!.topics,
-//           });
-
-//           if (
-//             event.log!.topics[0] === undefined ||
-//             source.abiEvents.bySelector[event.log!.topics[0]] === undefined
-//           ) {
-//             throw new Error();
-//           }
-
-//           const logEventName =
-//             source.abiEvents.bySelector[event.log!.topics[0]]!.safeName;
-
-//           events.push({
-//             type: "log",
-//             chainId: event.chainId,
-//             contractName: source.contractName,
-//             logEventName,
-//             event: {
-//               args: decodedLog.args,
-//               log: event.log!,
-//               block: event.block,
-//               transaction: event.transaction!,
-//               transactionReceipt: event.transactionReceipt,
-//             },
-//             encodedCheckpoint: event.encodedCheckpoint,
-//           });
-//         } catch (err) {
-//           // TODO(kyle) Because we are strictly setting all `topics` now, this should be a bigger error.
-//           common.logger.debug({
-//             service: "app",
-//             msg: `Unable to decode log, skipping it. id: ${event.log?.id}, data: ${event.log?.data}, topics: ${event.log?.topics}`,
-//           });
-//         }
-//         break;
-//       }
-
-//       default:
-//         never(source);
-//     }
-//   }
-
-//   return events;
-// };
+  return args.events as unknown as Event[];
+};
