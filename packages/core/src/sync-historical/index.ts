@@ -112,7 +112,9 @@ export const createHistoricalSync = async (
       toBlock: interval[1],
     });
 
-    await args.syncStore.insertLogs({ logs, chainId: args.network.chainId });
+    if (logs.length !== 0) {
+      await args.syncStore.insertLogs({ logs, chainId: args.network.chainId });
+    }
 
     const dedupedBlockNumbers = dedupe(logs.map((l) => l.blockNumber));
     const transactionHashes = new Set(logs.map((l) => l.transactionHash));
@@ -183,7 +185,9 @@ export const createHistoricalSync = async (
     }));
 
     // Insert the addresses into the sync-store
-    await args.syncStore.insertAddresses({ filter, addresses });
+    if (addresses.length !== 0) {
+      await args.syncStore.insertAddresses({ filter, addresses });
+    }
   };
 
   /**

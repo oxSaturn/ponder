@@ -1,21 +1,22 @@
 import type { Common } from "@/common/common.js";
 import type { HeadlessKysely } from "@/database/kysely.js";
 import type { RawEvent } from "@/sync/events.js";
+import { encodeAsText } from "@/utils/encoding.js";
+import { type Interval, intervalUnion } from "@/utils/interval.js";
+import { never } from "@/utils/never.js";
+
 import {
   type AddressFilter,
   type Filter,
   type LogFilter,
   getFilterId,
-} from "@/sync/filter.js";
-import { encodeAsText } from "@/utils/encoding.js";
-import { type Interval, intervalUnion } from "@/utils/interval.js";
-import { never } from "@/utils/never.js";
+} from "@/sync/source.js";
 import type {
   SyncBlock,
   SyncLog,
   SyncTransaction,
   SyncTransactionReceipt,
-} from "@/utils/rpc.js";
+} from "@/types/sync.js";
 import { type SelectQueryBuilder, sql as ksql } from "kysely";
 import type { Address, Hash } from "viem";
 import {

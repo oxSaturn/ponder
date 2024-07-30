@@ -4,9 +4,7 @@ import {
   setupDatabaseServices,
   setupIsolatedDatabase,
 } from "@/_test/setup.js";
-import { drainAsyncGenerator } from "@/utils/drainAsyncGenerator.js";
 import { beforeEach, expect, test } from "vitest";
-import { createSync } from "./index.js";
 import { createLocalSync } from "./local.js";
 
 beforeEach(setupCommon);
@@ -24,28 +22,78 @@ test("createLocalSync()", async (context) => {
   });
 
   expect(sync).toBeDefined();
+  expect(sync.startBlock.number).toBe("0x0");
+  expect(sync.endBlock).toBe(undefined);
+  expect(sync.finalizedBlock.number).toBe("0x1");
+  expect(sync.latestBlock).toBe(undefined);
 
   await cleanup();
 });
 
-test("getEvents() returns events", async (context) => {
-  const { cleanup, syncStore } = await setupDatabase(context);
+test("sync()", async (context) => {
+  const { cleanup, syncStore, database } = await setupDatabaseServices(context);
 
-  const sync = await createSync({
+  const sync = await createLocalSync({
     syncStore,
-    // @ts-ignore
-    sources: [context.sources[0]],
+    sources: context.sources,
     common: context.common,
-    networks: context.networks,
+    network: context.networks[0],
   });
 
-  const events = await drainAsyncGenerator(sync.getEvents());
+  await sync.sync();
 
-  expect(events).toBeDefined();
+  const intervals = await database.syncDb
+    .selectFrom("interval")
+    .selectAll()
+    .execute();
+
+  expect(intervals).toHaveLength(4);
 
   await cleanup();
 });
 
-test.todo("getEvents() with cache");
+test("latestBlock resolves to finalizedBlock", async (context) => {
+  const { cleanup, syncStore } = await setupDatabaseServices(context);
 
-test.todo("getEvents() with end block");
+  const sync = await createLocalSync({
+    syncStore,
+    sources: context.sources,
+    common: context.common,
+    network: context.networks[0],
+  });
+
+  sync.finalizedBlock.number = "0x4";
+
+  await sync.sync();
+
+  expect(sync.latestBlock).toBeDefined();
+  expect(sync.latestBlock!.number).toBe("0x4");
+  expect(sync.latestBlock).toStrictEqual(sync.finalizedBlock);
+
+  await cleanup();
+});
+
+test("latestBlock resolves to endBlock", async (context) => {
+  const { cleanup, syncStore } = await setupDatabaseServices(context);
+
+  const filter = context.sources[0].filter;
+  filter.toBlock = 3;
+
+  const sync = await createLocalSync({
+    syncStore,
+    sources: [{ ...context.sources[0], filter }],
+    common: context.common,
+    network: context.networks[0],
+  });
+
+  sync.finalizedBlock.number = "0x4";
+
+  await sync.sync();
+
+  expect(sync.latestBlock).toBeDefined();
+  expect(sync.endBlock).toBeDefined();
+  expect(sync.latestBlock!.number).toBe("0x3");
+  expect(sync.latestBlock).toStrictEqual(sync.endBlock);
+
+  await cleanup();
+});

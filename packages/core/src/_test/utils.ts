@@ -5,12 +5,6 @@ import { createConfig } from "@/config/config.js";
 import type { Status } from "@/indexing-store/store.js";
 import type { RawEvent } from "@/sync/events.js";
 import type { Source } from "@/sync/source.js";
-import {
-  encodeCheckpoint,
-  maxCheckpoint,
-  zeroCheckpoint,
-} from "@/utils/checkpoint.js";
-import { createRequestQueue } from "@/utils/requestQueue.js";
 import type {
   SyncBlock,
   SyncCallTrace,
@@ -18,7 +12,13 @@ import type {
   SyncLog,
   SyncTransaction,
   SyncTransactionReceipt,
-} from "@/utils/rpc.js";
+} from "@/types/sync.js";
+import {
+  encodeCheckpoint,
+  maxCheckpoint,
+  zeroCheckpoint,
+} from "@/utils/checkpoint.js";
+import { createRequestQueue } from "@/utils/requestQueue.js";
 import {
   type Chain,
   type Hash,

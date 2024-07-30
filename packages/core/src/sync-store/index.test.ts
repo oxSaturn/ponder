@@ -5,7 +5,7 @@ import {
   setupIsolatedDatabase,
 } from "@/_test/setup.js";
 import { getRawRPCData } from "@/_test/utils.js";
-import type { AddressFilter, LogFilter } from "@/sync/filter.js";
+import type { AddressFilter, LogFilter } from "@/sync/source.js";
 import {
   decodeCheckpoint,
   encodeCheckpoint,

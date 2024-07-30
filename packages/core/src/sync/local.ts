@@ -114,7 +114,12 @@ export const createLocalSync = async (
     },
     finalizedBlock,
     async sync() {
-      // ...
+      /**
+       * Select a range of blocks to sync bounded by `finalizedBlock`.
+       *
+       * It is important for devEx that the interval is not too large, because
+       * time spent syncing ≈ time before indexing function feedback.
+       */
       const interval: Interval = [
         fromBlock,
         Math.min(
@@ -122,6 +127,7 @@ export const createLocalSync = async (
           hexToNumber(finalizedBlock.number),
         ),
       ];
+      // Update cursor to record progress
       fromBlock = interval[1];
 
       await historicalSync.sync(interval);
