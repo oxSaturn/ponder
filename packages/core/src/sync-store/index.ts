@@ -4,7 +4,6 @@ import type { RawEvent } from "@/sync/events.js";
 import {
   type AddressFilter,
   type Filter,
-  type LogAddressFilter,
   type LogFilter,
   getFilterId,
 } from "@/sync/filter.js";
@@ -18,7 +17,7 @@ import { encodeAsText } from "@/utils/encoding.js";
 import { type Interval, intervalUnion } from "@/utils/interval.js";
 import { never } from "@/utils/never.js";
 import { type SelectQueryBuilder, sql as ksql } from "kysely";
-import type { Address, Hash, Hex } from "viem";
+import type { Address, Hash } from "viem";
 import {
   type PonderSyncSchema,
   encodeBlock,
@@ -28,11 +27,15 @@ import {
 } from "./encoding.js";
 
 export type SyncStore = {
-  insertAddress(args: {
+  /** Insert an address that matches `filter`. */
+  insertAddresses(args: {
     filter: AddressFilter;
-    address: Address;
-    blockNumber: bigint;
+    addresses: { address: Address; blockNumber: number }[];
   }): Promise<void>;
+  /**
+   * Return all addresses that match `filter`.
+   * TODO(kyle) should `blockNumber` be used as an upper bound here?
+   */
   getAddresses(args: { filter: AddressFilter }): Promise<Address[]>;
   insertInterval<type extends "event" | "address">(args: {
     filterType: type;
@@ -102,17 +105,21 @@ export const createSyncStore = ({
   sql: "sqlite" | "postgres";
   db: HeadlessKysely<PonderSyncSchema>;
 }): SyncStore => ({
-  insertAddress: async ({ filter, address, blockNumber }) =>
+  insertAddresses: async ({ filter, addresses }) =>
     db.wrap({ method: "insertAddress" }, async () => {
       await db
         .insertInto("address")
-        .values({
-          filter_id: getFilterId("address", filter),
-          chain_id: filter.chainId,
-          block_number:
-            sql === "sqlite" ? encodeAsText(blockNumber) : blockNumber,
-          address,
-        })
+        .values(
+          addresses.map(({ address, blockNumber }) => ({
+            filter_id: getFilterId("address", filter),
+            chain_id: filter.chainId,
+            block_number:
+              sql === "sqlite"
+                ? encodeAsText(blockNumber)
+                : BigInt(blockNumber),
+            address: address,
+          })),
+        )
         .execute();
     }),
   getAddresses: async ({ filter }) =>
@@ -231,21 +238,6 @@ export const createSyncStore = ({
         .then((result) => result !== undefined);
     }),
   populateEvents: async ({ filter, interval }) => {
-    const childAddressSQL = (
-      childAddressLocation: LogAddressFilter["childAddressLocation"],
-    ) => {
-      if (childAddressLocation.startsWith("offset")) {
-        const childAddressOffset = Number(childAddressLocation.substring(6));
-        const start = 2 + 12 * 2 + childAddressOffset * 2 + 1;
-        const length = 20 * 2;
-        return ksql<Hex>`'0x' || substring(data, ${start}, ${length})`;
-      } else {
-        const start = 2 + 12 * 2 + 1;
-        const length = 20 * 2;
-        return ksql<Hex>`'0x' || substring(${ksql.ref(childAddressLocation)}, ${start}, ${length})`;
-      }
-    };
-
     const addressSQL = <
       T extends SelectQueryBuilder<PonderSyncSchema, "log", {}>,
     >(
@@ -262,13 +254,10 @@ export const createSyncStore = ({
           "address",
           "in",
           db
-            .selectFrom("log")
-            .select(
-              childAddressSQL(address.childAddressLocation).as("childAddress"),
-            )
+            .selectFrom("address")
+            .select("address")
             .where("chain_id", "=", address.chainId)
-            .where("topic0", "=", address.eventSelector)
-            .$call((_qb) => addressSQL(_qb, address.address)),
+            .where("filter_id", "=", getFilterId("address", address)),
         ) as T;
       }
       return qb;
@@ -516,11 +505,10 @@ lpad(number::text, 16, '0') ||
     });
   },
   getEvents: async ({ filters, from, to, limit }) => {
-    const start = performance.now();
     const events = await db.wrap({ method: "getEvents" }, async () => {
       return await db
         .selectFrom("event")
-        .select("checkpoint")
+        .selectAll()
         .where(
           "event.filter_id",
           "in",
@@ -534,15 +522,13 @@ lpad(number::text, 16, '0') ||
         .execute();
     });
 
-    console.log(performance.now() - start);
-
-    // if (sql === "sqlite") {
-    //   for (let i = 0; i < events.length; i++) {
-    //     if (events[i]!.data !== null) {
-    //       events[i]!.data = JSON.parse(events[i]!.data!);
-    //     }
-    //   }
-    // }
+    if (sql === "sqlite") {
+      for (let i = 0; i < events.length; i++) {
+        if (events[i]!.data !== null) {
+          events[i]!.data = JSON.parse(events[i]!.data!);
+        }
+      }
+    }
 
     let cursor: string;
     if (events.length !== limit) {

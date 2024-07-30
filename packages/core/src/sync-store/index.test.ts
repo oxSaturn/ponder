@@ -42,10 +42,9 @@ test("setup creates tables", async (context) => {
 test("getAddresses()", async (context) => {
   const { cleanup, syncStore } = await setupDatabaseServices(context);
 
-  await syncStore.insertAddress({
+  await syncStore.insertAddresses({
     filter: context.sources[1].filter.address as AddressFilter,
-    address: "0xa",
-    blockNumber: 0n,
+    addresses: [{ address: "0xa", blockNumber: 0 }],
   });
 
   const addresses = await syncStore.getAddresses({
@@ -305,7 +304,7 @@ test("populateEvents() creates events", async (context) => {
     chainId: 1,
   });
 
-  const filter = { type: "log", chainId: 1 } satisfies LogFilter;
+  const filter = { type: "log", chainId: 1, fromBlock: 0 } satisfies LogFilter;
   await syncStore.populateEvents({ filter, interval: [3, 3] });
 
   const events = await database.syncDb
@@ -377,7 +376,7 @@ test("populateEvents() handles block bounds", async (context) => {
     chainId: 1,
   });
 
-  const filter = { type: "log", chainId: 1 } satisfies LogFilter;
+  const filter = { type: "log", chainId: 1, fromBlock: 0 } satisfies LogFilter;
 
   await syncStore.populateEvents({ filter, interval: [3, 3] });
 
@@ -402,7 +401,7 @@ test("populateEvents() creates log filter checkpoint", async (context) => {
     chainId: 1,
   });
 
-  const filter = { type: "log", chainId: 1 } satisfies LogFilter;
+  const filter = { type: "log", chainId: 1, fromBlock: 0 } satisfies LogFilter;
 
   await syncStore.populateEvents({ filter, interval: [3, 3] });
 
@@ -434,7 +433,7 @@ test("populateEvents() creates log filter data", async (context) => {
     chainId: 1,
   });
 
-  const filter = { type: "log", chainId: 1 } satisfies LogFilter;
+  const filter = { type: "log", chainId: 1, fromBlock: 0 } satisfies LogFilter;
 
   await syncStore.populateEvents({ filter, interval: [3, 3] });
 
@@ -509,7 +508,7 @@ test("populateEvents() handles conflicts", async (context) => {
     chainId: 1,
   });
 
-  const filter = { type: "log", chainId: 1 } satisfies LogFilter;
+  const filter = { type: "log", chainId: 1, fromBlock: 0 } satisfies LogFilter;
 
   await syncStore.populateEvents({ filter, interval: [3, 3] });
   await syncStore.populateEvents({ filter, interval: [3, 3] });
@@ -535,7 +534,7 @@ test("getEvents() returns events", async (context) => {
     chainId: 1,
   });
 
-  const filter = { type: "log", chainId: 1 } satisfies LogFilter;
+  const filter = { type: "log", chainId: 1, fromBlock: 0 } satisfies LogFilter;
   await syncStore.populateEvents({ filter, interval: [3, 3] });
 
   const events = await syncStore.getEvents({
@@ -553,7 +552,7 @@ test("getEvents() returns events", async (context) => {
 test("getEventCount empty", async (context) => {
   const { cleanup, syncStore } = await setupDatabaseServices(context);
 
-  const filter = { type: "log", chainId: 1 } satisfies LogFilter;
+  const filter = { type: "log", chainId: 1, fromBlock: 0 } satisfies LogFilter;
   const count = await syncStore.getEventCount({ filters: [filter] });
 
   expect(count).toBe(0);
@@ -572,7 +571,7 @@ test("getEventCount", async (context) => {
     chainId: 1,
   });
 
-  const filter = { type: "log", chainId: 1 } satisfies LogFilter;
+  const filter = { type: "log", chainId: 1, fromBlock: 0 } satisfies LogFilter;
   await syncStore.populateEvents({ filter, interval: [3, 3] });
 
   const count = await syncStore.getEventCount({ filters: [filter] });

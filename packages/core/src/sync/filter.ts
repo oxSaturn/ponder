@@ -14,8 +14,8 @@ export type LogFilter = {
 export type BlockFilter = {
   type: "block";
   chainId: number;
-  interval?: number;
-  offset?: number;
+  interval: number;
+  offset: number;
   fromBlock: number;
   toBlock?: number;
 };
@@ -37,3 +37,11 @@ export const getFilterId = <type extends "event" | "address">(
   type: type,
   filter: type extends "address" ? AddressFilter : Filter,
 ) => `${type}_${JSON.stringify(filter)}`;
+
+/** Returns true if `address` is an address filter. */
+export const isAddressFilter = (
+  address: (LogFilter | LogAddressFilter)["address"],
+): address is LogAddressFilter => {
+  if (address === undefined) return false;
+  return typeof address !== "string" && Array.isArray(address) === false;
+};

@@ -239,13 +239,13 @@ export async function run({
 
     // Run historical indexing until complete.
     for await (const events of sync.getEvents()) {
-      // const result = await handleEvents(decodeEvents({ sources, events }));
-      // if (result.status === "killed") {
-      //   return;
-      // } else if (result.status === "error") {
-      //   onReloadableError(result.error);
-      //   return;
-      // }
+      const result = await handleEvents(decodeEvents({ sources, events }));
+      if (result.status === "killed") {
+        return;
+      } else if (result.status === "error") {
+        onReloadableError(result.error);
+        return;
+      }
     }
 
     await historicalStore.flush({ isFullFlush: true });

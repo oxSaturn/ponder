@@ -93,7 +93,7 @@ const createLocalSync = async (args: {
     common: args.common,
     sources: args.sources,
     syncStore: args.syncStore,
-    chain: args.network.chain,
+    network: args.network,
     requestQueue,
   });
   historicalSync.initializeMetrics(finalizedBlock);
@@ -214,6 +214,7 @@ export const createSync = async (args: CreateSyncParameters): Promise<Sync> => {
         from = cursor;
       }
       if (to >= end) break;
+      // TODO(kyle) log "finished '[networkName]' historical sync"
     }
   }
 
