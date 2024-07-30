@@ -8,8 +8,7 @@ import type {
 } from "@/types/eth.js";
 import type { AbiEvent } from "abitype";
 import { type Hex, decodeEventLog, getEventSelector } from "viem";
-import { getFilterId } from "./filter.js";
-import type { Source } from "./source.js";
+import { type Source, getFilterId } from "./source.js";
 
 export type RawEvent = Exclude<PonderSyncSchema["event"], "data"> & {
   data: object | null;

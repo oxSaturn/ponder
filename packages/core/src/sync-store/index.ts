@@ -7,15 +7,15 @@ import {
   type LogFilter,
   getFilterId,
 } from "@/sync/filter.js";
+import { encodeAsText } from "@/utils/encoding.js";
+import { type Interval, intervalUnion } from "@/utils/interval.js";
+import { never } from "@/utils/never.js";
 import type {
   SyncBlock,
   SyncLog,
   SyncTransaction,
   SyncTransactionReceipt,
-} from "@/sync/index.js";
-import { encodeAsText } from "@/utils/encoding.js";
-import { type Interval, intervalUnion } from "@/utils/interval.js";
-import { never } from "@/utils/never.js";
+} from "@/utils/rpc.js";
 import { type SelectQueryBuilder, sql as ksql } from "kysely";
 import type { Address, Hash } from "viem";
 import {

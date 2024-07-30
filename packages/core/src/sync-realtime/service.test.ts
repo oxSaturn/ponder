@@ -5,14 +5,14 @@ import {
   setupIsolatedDatabase,
 } from "@/_test/setup.js";
 import { getRawRPCData, testClient } from "@/_test/utils.js";
+import type { Source } from "@/sync/source.js";
+import { maxCheckpoint } from "@/utils/checkpoint.js";
+import type { RequestQueue } from "@/utils/requestQueue.js";
 import {
   type SyncBlock,
   type SyncTrace,
   _eth_getBlockByNumber,
-} from "@/sync/index.js";
-import type { Source } from "@/sync/source.js";
-import { maxCheckpoint } from "@/utils/checkpoint.js";
-import type { RequestQueue } from "@/utils/requestQueue.js";
+} from "@/utils/rpc.js";
 import { beforeEach, expect, test, vi } from "vitest";
 import { create, handleBlock, handleReorg, kill, start } from "./service.js";
 

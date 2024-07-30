@@ -1,5 +1,9 @@
 import type { Common } from "@/common/common.js";
 import type { Network } from "@/config/networks.js";
+import type { Source } from "@/sync/source.js";
+import { type Checkpoint, maxCheckpoint } from "@/utils/checkpoint.js";
+import { range } from "@/utils/range.js";
+import type { RequestQueue } from "@/utils/requestQueue.js";
 import {
   type SyncBlock,
   type SyncCallTrace,
@@ -9,11 +13,7 @@ import {
   _eth_getLogs,
   _eth_getTransactionReceipt,
   _trace_block,
-} from "@/sync/index.js";
-import type { Source } from "@/sync/source.js";
-import { type Checkpoint, maxCheckpoint } from "@/utils/checkpoint.js";
-import { range } from "@/utils/range.js";
-import type { RequestQueue } from "@/utils/requestQueue.js";
+} from "@/utils/rpc.js";
 import { wait } from "@/utils/wait.js";
 import { type Queue, createQueue } from "@ponder/common";
 import { type Address, type Hash, hexToNumber } from "viem";

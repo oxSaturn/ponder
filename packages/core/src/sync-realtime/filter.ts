@@ -2,8 +2,8 @@ import type {
   CallTraceFilterCriteria,
   LogFilterCriteria,
 } from "@/config/sources.js";
-import type { SyncCallTrace, SyncLog } from "@/sync/index.js";
 import { toLowerCase } from "@/utils/lowercase.js";
+import type { SyncCallTrace, SyncLog } from "@/utils/rpc.js";
 
 export function filterLogs({
   logs,

@@ -1,25 +1,26 @@
 import {
   setupAnvil,
   setupCommon,
+  setupDatabaseServices,
   setupIsolatedDatabase,
 } from "@/_test/setup.js";
 import { drainAsyncGenerator } from "@/utils/drainAsyncGenerator.js";
 import { beforeEach, expect, test } from "vitest";
 import { createSync } from "./index.js";
+import { createLocalSync } from "./local.js";
 
 beforeEach(setupCommon);
 beforeEach(setupAnvil);
 beforeEach(setupIsolatedDatabase);
 
-test("createSync()", async (context) => {
-  const { cleanup, syncStore } = await setupDatabase(context);
+test("createLocalSync()", async (context) => {
+  const { cleanup, syncStore } = await setupDatabaseServices(context);
 
-  const sync = await createSync({
+  const sync = await createLocalSync({
     syncStore,
-
     sources: [context.sources[0]],
     common: context.common,
-    networks: context.networks,
+    network: context.networks[0],
   });
 
   expect(sync).toBeDefined();
@@ -32,6 +33,7 @@ test("getEvents() returns events", async (context) => {
 
   const sync = await createSync({
     syncStore,
+    // @ts-ignore
     sources: [context.sources[0]],
     common: context.common,
     networks: context.networks,

@@ -1,8 +1,8 @@
 import { erc20ABI, pairABI } from "@/_test/generated.js";
 import { setupAnvil, setupCommon } from "@/_test/setup.js";
 import { publicClient } from "@/_test/utils.js";
-import type { SyncLog } from "@/sync/index.js";
 import { toLowerCase } from "@/utils/lowercase.js";
+import type { SyncLog } from "@/utils/rpc.js";
 import { getAbiItem, getEventSelector, toHex } from "viem";
 import { beforeEach, expect, test } from "vitest";
 import { filterLogs } from "./filter.js";

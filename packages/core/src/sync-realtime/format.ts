@@ -1,4 +1,4 @@
-import type { SyncBlock } from "@/sync/index.js";
+import type { SyncBlock } from "@/utils/rpc.js";
 import { type Block, type BlockTag, hexToNumber } from "viem";
 
 export type LightBlock = Pick<

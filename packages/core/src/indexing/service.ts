@@ -3,7 +3,7 @@ import type { Common } from "@/common/common.js";
 import type { Network } from "@/config/networks.js";
 import type { IndexingStore } from "@/indexing-store/store.js";
 import type { Schema } from "@/schema/common.js";
-import type { Sync } from "@/sync/index2.js";
+import type { Sync } from "@/sync/index.js";
 import type { ContractSource, Source } from "@/sync/source.js";
 import type { DatabaseModel } from "@/types/model.js";
 import type { UserRecord } from "@/types/schema.js";

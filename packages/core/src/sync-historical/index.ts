@@ -9,15 +9,9 @@ import {
   type LogAddressFilter,
   type LogFilter,
   isAddressFilter,
-} from "@/sync/filter.js";
-import {
-  type SyncBlock,
-  type SyncLog,
-  _eth_getBlockByHash,
-  _eth_getBlockByNumber,
-  _eth_getLogs,
-} from "@/sync/index.js";
+} from "@/sync/source.js";
 import type { Source } from "@/sync/source.js";
+import type { SyncBlock, SyncLog } from "@/types/sync.js";
 import { formatEta, formatPercentage } from "@/utils/format.js";
 import {
   type Interval,
@@ -26,6 +20,11 @@ import {
 } from "@/utils/interval.js";
 import { never } from "@/utils/never.js";
 import type { RequestQueue } from "@/utils/requestQueue.js";
+import {
+  _eth_getBlockByHash,
+  _eth_getBlockByNumber,
+  _eth_getLogs,
+} from "@/utils/rpc.js";
 import { dedupe } from "@ponder/common";
 import { type Address, type Hash, hexToBigInt, hexToNumber, toHex } from "viem";
 
@@ -106,7 +105,7 @@ export const createHistoricalSync = async (
       ? await syncAddress(_address, interval)
       : _address;
 
-    const logs = await _eth_getLogs(args, {
+    const logs = await _eth_getLogs(args.requestQueue, {
       address,
       topics: filter.topics,
       fromBlock: interval[0],
@@ -149,7 +148,7 @@ export const createHistoricalSync = async (
       ? await syncAddress(_address, interval)
       : _address;
 
-    const logs = await _eth_getLogs(args, {
+    const logs = await _eth_getLogs(args.requestQueue, {
       address,
       topics: [filter.eventSelector],
       fromBlock: interval[0],
@@ -209,7 +208,7 @@ export const createHistoricalSync = async (
     if (blockCache.has(number)) {
       block = await blockCache.get(number)!;
     } else {
-      const _block = _eth_getBlockByNumber(args, {
+      const _block = _eth_getBlockByNumber(args.requestQueue, {
         blockNumber: toHex(number),
       });
       blockCache.set(number, _block);

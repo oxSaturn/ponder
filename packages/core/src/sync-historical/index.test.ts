@@ -5,7 +5,7 @@ import {
   setupIsolatedDatabase,
 } from "@/_test/setup.js";
 import { publicClient } from "@/_test/utils.js";
-import type { SyncBlock } from "@/sync/index.js";
+import type { SyncBlock } from "@/types/sync.js";
 import { beforeEach, expect, test, vi } from "vitest";
 import { createHistoricalSync } from "./index.js";
 

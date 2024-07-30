@@ -4,14 +4,6 @@ import type { Common } from "@/common/common.js";
 import { createConfig } from "@/config/config.js";
 import type { Status } from "@/indexing-store/store.js";
 import type { RawEvent } from "@/sync/events.js";
-import type {
-  SyncBlock,
-  SyncCallTrace,
-  SyncCreateTrace,
-  SyncLog,
-  SyncTransaction,
-  SyncTransactionReceipt,
-} from "@/sync/index.js";
 import type { Source } from "@/sync/source.js";
 import {
   encodeCheckpoint,
@@ -19,6 +11,14 @@ import {
   zeroCheckpoint,
 } from "@/utils/checkpoint.js";
 import { createRequestQueue } from "@/utils/requestQueue.js";
+import type {
+  SyncBlock,
+  SyncCallTrace,
+  SyncCreateTrace,
+  SyncLog,
+  SyncTransaction,
+  SyncTransactionReceipt,
+} from "@/utils/rpc.js";
 import {
   type Chain,
   type Hash,

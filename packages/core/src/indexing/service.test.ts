@@ -8,8 +8,8 @@ import {
 } from "@/_test/setup.js";
 import { getEventsBlock, getEventsLog, getEventsTrace } from "@/_test/utils.js";
 import { createSchema } from "@/schema/schema.js";
-import { createSyncService } from "@/sync/index.js";
 import { zeroCheckpoint } from "@/utils/checkpoint.js";
+import { createSyncService } from "@/utils/rpc.js";
 import { promiseWithResolvers } from "@ponder/common";
 import { type Address, checksumAddress, parseEther, toHex } from "viem";
 import { beforeEach, expect, test, vi } from "vitest";

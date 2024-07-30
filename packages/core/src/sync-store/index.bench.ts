@@ -6,16 +6,16 @@ import {
   setupDatabaseServices,
   setupIsolatedDatabase,
 } from "@/_test/setup.js";
+import type { Source } from "@/sync/source.js";
+import { type Checkpoint, maxCheckpoint } from "@/utils/checkpoint.js";
+import { drainAsyncGenerator } from "@/utils/drainAsyncGenerator.js";
+import { range } from "@/utils/range.js";
 import type {
   SyncBlock,
   SyncLog,
   SyncTransaction,
   SyncTransactionReceipt,
-} from "@/sync/index.js";
-import type { Source } from "@/sync/source.js";
-import { type Checkpoint, maxCheckpoint } from "@/utils/checkpoint.js";
-import { drainAsyncGenerator } from "@/utils/drainAsyncGenerator.js";
-import { range } from "@/utils/range.js";
+} from "@/utils/rpc.js";
 import { type TestContext, bench } from "vitest";
 
 let context: TestContext;

@@ -12,7 +12,7 @@ import type { IndexingStore, Status } from "@/indexing-store/store.js";
 import { createIndexingService } from "@/indexing/index.js";
 import { createSyncStore } from "@/sync-store/index.js";
 import { type Event, decodeEvents } from "@/sync/events.js";
-import { createSync } from "@/sync/index2.js";
+import { createSync } from "@/sync/index.js";
 import {
   type Checkpoint,
   isCheckpointEqual,
