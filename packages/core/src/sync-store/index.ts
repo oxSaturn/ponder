@@ -84,13 +84,13 @@ export type SyncStore = {
   getEventCount(args: { filters: Filter[] }): Promise<number>;
   insertRpcRequestResult(args: {
     request: string;
-    blockNumber: number;
+    blockNumber: bigint;
     chainId: number;
     result: string;
   }): Promise<void>;
   getRpcRequestResult(args: {
     request: string;
-    blockNumber: number;
+    blockNumber: bigint;
     chainId: number;
   }): Promise<string | null>;
   // pruneByBlock,
@@ -560,7 +560,7 @@ lpad(number::text, 16, '0') ||
         .values({
           request,
           blockNumber:
-            sql === "sqlite" ? encodeAsText(blockNumber) : BigInt(blockNumber),
+            sql === "sqlite" ? encodeAsText(blockNumber) : blockNumber,
           chainId,
           result,
         })
@@ -579,7 +579,7 @@ lpad(number::text, 16, '0') ||
         .where(
           "blockNumber",
           "=",
-          sql === "sqlite" ? encodeAsText(blockNumber) : BigInt(blockNumber),
+          sql === "sqlite" ? encodeAsText(blockNumber) : blockNumber,
         )
         .executeTakeFirst();
 

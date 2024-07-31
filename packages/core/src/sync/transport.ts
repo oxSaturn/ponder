@@ -65,7 +65,7 @@ export const cachedTransport = ({
             request,
           });
 
-          if (cachedResult?.result) return cachedResult.result;
+          if (cachedResult !== null) return cachedResult;
           else {
             const response = await requestQueue.request(body);
             await syncStore.insertRpcRequestResult({

@@ -1,6 +1,7 @@
 import type { Common } from "@/common/common.js";
 import type { Network } from "@/config/networks.js";
 import type { Source } from "@/sync/source.js";
+import type { SyncTransaction } from "@/types/sync.js";
 import { type Checkpoint, maxCheckpoint } from "@/utils/checkpoint.js";
 import { range } from "@/utils/range.js";
 import type { RequestQueue } from "@/utils/requestQueue.js";
@@ -57,19 +58,18 @@ export type Service = {
 
 export type RealtimeSyncEvent =
   | {
-      type: "reorg";
-      chainId: number;
-      safeCheckpoint: Checkpoint;
-    }
-  | {
-      type: "checkpoint";
-      chainId: number;
-      checkpoint: Checkpoint;
+      type: "block";
+      block: SyncBlock;
+      logs: SyncLog[] | undefined;
+      transactions: SyncTransaction[] | undefined;
     }
   | {
       type: "finalize";
-      chainId: number;
-      checkpoint: Checkpoint;
+      block: SyncBlock;
+    }
+  | {
+      type: "reorg";
+      block: SyncBlock;
     };
 
 const ERROR_TIMEOUT = [

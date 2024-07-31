@@ -92,11 +92,14 @@ export const createLocalSync = async (
   // Cursor to track progress.
   let fromBlock = hexToNumber(startBlock.number);
 
+  let _latestBlock: SyncBlock | undefined;
+
   return {
     requestQueue,
     startBlock,
     endBlock,
     get latestBlock() {
+      if (_latestBlock !== undefined) return _latestBlock;
       /**
        * Use `fromBlock` to determine if the sync is complete. If the sync is
        * complete, return the most relevant block (`endBlock` takes precedence over `finalizedBlock`),
@@ -111,6 +114,10 @@ export const createLocalSync = async (
         return finalizedBlock;
       }
       return historicalSync.latestBlock;
+    },
+    set latestBlock(block) {
+      if (block === undefined) return;
+      _latestBlock = block;
     },
     finalizedBlock,
     async sync() {

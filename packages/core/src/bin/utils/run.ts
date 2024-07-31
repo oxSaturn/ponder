@@ -21,21 +21,6 @@ import {
 import { never } from "@/utils/never.js";
 import { createQueue } from "@ponder/common";
 
-export type RealtimeEvent =
-  | {
-      type: "newEvents";
-      fromCheckpoint: Checkpoint;
-      toCheckpoint: Checkpoint;
-    }
-  | {
-      type: "reorg";
-      safeCheckpoint: Checkpoint;
-    }
-  | {
-      type: "finalize";
-      checkpoint: Checkpoint;
-    };
-
 /**
  * Starts the sync and indexing services for the specified build.
  */
@@ -153,7 +138,7 @@ export async function run({
           // Note: statusBlocks should be assigned before any other
           // asynchronous statements in order to prevent race conditions and
           // ensure its correctness.
-          const statusBlocks = syncService.getStatusBlocks(event.toCheckpoint);
+          // const statusBlocks = syncService.getStatusBlocks(event.toCheckpoint);
 
           for await (const rawEvents of syncStore.getEvents({
             sources,
@@ -168,11 +153,11 @@ export async function run({
 
           // set status to most recently processed realtime block or end block
           // for each chain.
-          for (const network of networks) {
-            if (statusBlocks[network.name] !== undefined) {
-              status[network.name]!.block = statusBlocks[network.name]!;
-            }
-          }
+          // for (const network of networks) {
+          //   if (statusBlocks[network.name] !== undefined) {
+          //     status[network.name]!.block = statusBlocks[network.name]!;
+          //   }
+          // }
 
           await metadataStore.setStatus(status);
 
