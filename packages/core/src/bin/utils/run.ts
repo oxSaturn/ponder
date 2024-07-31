@@ -8,7 +8,7 @@ import { getHistoricalStore } from "@/indexing-store/historical.js";
 import { getMetadataStore } from "@/indexing-store/metadata.js";
 import { getReadonlyStore } from "@/indexing-store/readonly.js";
 import { getRealtimeStore } from "@/indexing-store/realtime.js";
-import type { IndexingStore, Status } from "@/indexing-store/store.js";
+import type { IndexingStore } from "@/indexing-store/store.js";
 import { createIndexingService } from "@/indexing/index.js";
 import { createSyncStore } from "@/sync-store/index.js";
 import { type Event, decodeEvents } from "@/sync/events.js";
@@ -51,14 +51,6 @@ export async function run({
   let database: DatabaseService;
   let namespaceInfo: NamespaceInfo;
   let initialCheckpoint: Checkpoint;
-
-  const status: Status = {};
-  for (const network of networks) {
-    status[network.name] = {
-      ready: false,
-      block: null,
-    };
-  }
 
   if (databaseConfig.kind === "sqlite") {
     const { directory } = databaseConfig;
@@ -110,12 +102,11 @@ export async function run({
     // initialCheckpoint,
   });
 
-  const handleEvents = async (events: Event[]) => {
-    if (events.length === 0) return;
-    const result = await indexingService.processEvents({ events });
-    if (result.status === "error") {
-      onReloadableError(result.error);
-    }
+  const handleEvents = async (
+    events: Event[],
+  ): ReturnType<(typeof indexingService)["processEvents"]> => {
+    if (events.length === 0) return { status: "success" };
+    return await indexingService.processEvents({ events });
   };
 
   const handleReorg = async (checkpoint: string) => {
@@ -132,26 +123,23 @@ export async function run({
     concurrency: 1,
     worker: async (event: RealtimeEvent) => {
       switch (event.type) {
-        case "block": {
-          // Note: statusBlocks should be assigned before any other
-          // asynchronous statements in order to prevent race conditions and
-          // ensure its correctness.
-          // const statusBlocks = syncService.getStatusBlocks(event.toCheckpoint);
+        case "block":
+          {
+            /**
+             * Note: statusBlocks should be assigned before any other
+             * synchronous statements in order to prevent race conditions and
+             * ensure its correctness.
+             */
+            const status = sync.getStatus();
 
-          await handleEvents(decodeEvents({ sources, events: event.events }));
+            const result = await handleEvents(
+              decodeEvents({ sources, events: event.events }),
+            );
+            if (result.status === "error") onReloadableError(result.error);
 
-          // set status to most recently processed realtime block or end block
-          // for each chain.
-          // for (const network of networks) {
-          //   if (statusBlocks[network.name] !== undefined) {
-          //     status[network.name]!.block = statusBlocks[network.name]!;
-          //   }
-          // }
-
-          // await metadataStore.setStatus(status);
-
+            await metadataStore.setStatus(status);
+          }
           break;
-        }
         case "reorg":
           await handleReorg(event.checkpoint);
           break;
@@ -198,22 +186,28 @@ export async function run({
 
   const start = async () => {
     // If the initial checkpoint is zero, we need to run setup events.
-    // if (isCheckpointEqual(initialCheckpoint, zeroCheckpoint)) {
-    //   const result = await indexingService.processSetupEvents({
-    //     sources,
-    //     networks,
-    //   });
-    //   if (result.status === "killed") {
-    //     return;
-    //   } else if (result.status === "error") {
-    //     onReloadableError(result.error);
-    //     return;
-    //   }
-    // }
+    if (isCheckpointEqual(initialCheckpoint, zeroCheckpoint)) {
+      const result = await indexingService.processSetupEvents({
+        sources,
+        networks,
+      });
+      if (result.status === "killed") {
+        return;
+      } else if (result.status === "error") {
+        onReloadableError(result.error);
+        return;
+      }
+    }
 
     // Run historical indexing until complete.
     for await (const events of sync.getEvents()) {
-      await handleEvents(decodeEvents({ sources, events }));
+      const result = await handleEvents(decodeEvents({ sources, events }));
+      if (result.status === "killed") {
+        return;
+      } else if (result.status === "error") {
+        onReloadableError(result.error);
+        return;
+      }
     }
 
     await historicalStore.flush({ isFullFlush: true });
@@ -227,7 +221,7 @@ export async function run({
     if (database.kind === "postgres") {
       await database.publish();
     }
-    // await handleFinalize(sync.finalizedCheckpoint);
+    await handleFinalize(sync.getFinalizedCheckpoint());
 
     await database.createIndexes({ schema });
 
@@ -246,17 +240,7 @@ export async function run({
 
     sync.startRealtime();
 
-    // set status to ready and set blocks to most recently processed
-    // or end block
-    // const statusBlocks = syncService.getStatusBlocks();
-    // for (const network of networks) {
-    //   status[network.name] = {
-    //     ready: true,
-    //     block: statusBlocks[network.name] ?? null,
-    //   };
-    // }
-
-    await metadataStore.setStatus(status);
+    await metadataStore.setStatus(sync.getStatus());
 
     common.logger.info({
       service: "server",

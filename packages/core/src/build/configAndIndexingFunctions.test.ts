@@ -1,10 +1,5 @@
 import path from "node:path";
 import type { Options } from "@/common/options.js";
-import type {
-  CallTraceSource,
-  FactoryCallTraceSource,
-  LogSource,
-} from "@/config/sources.js";
 import {
   http,
   getEventSelector,

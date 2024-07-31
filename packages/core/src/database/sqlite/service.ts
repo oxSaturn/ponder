@@ -525,7 +525,7 @@ export class SqliteDatabaseService implements BaseDatabaseService {
     checkpoint,
     namespaceInfo,
   }: {
-    checkpoint: Checkpoint;
+    checkpoint: string;
     namespaceInfo: NamespaceInfo;
   }) {
     await revertIndexingTables({
@@ -537,18 +537,19 @@ export class SqliteDatabaseService implements BaseDatabaseService {
 
   async updateFinalizedCheckpoint({
     checkpoint,
-  }: { checkpoint: Checkpoint }): Promise<void> {
+  }: { checkpoint: string }): Promise<void> {
     await this.db.wrap({ method: "updateFinalizedCheckpoint" }, async () => {
       await this.db
         .withSchema(this.internalNamespace)
         .updateTable("namespace_lock")
         .where("namespace", "=", this.userNamespace)
-        .set({ finalized_checkpoint: encodeCheckpoint(checkpoint) })
+        .set({ finalized_checkpoint: checkpoint })
         .execute();
 
+      const decoded = decodeCheckpoint(checkpoint);
       this.common.logger.debug({
         service: "database",
-        msg: `Updated finalized checkpoint to (timestamp=${checkpoint.blockTimestamp} chainId=${checkpoint.chainId} block=${checkpoint.blockNumber})`,
+        msg: `Updated finalized checkpoint to (timestamp=${decoded.blockTimestamp} chainId=${decoded.chainId} block=${decoded.blockNumber})`,
       });
     });
   }
