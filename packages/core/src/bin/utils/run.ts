@@ -12,7 +12,7 @@ import type { IndexingStore, Status } from "@/indexing-store/store.js";
 import { createIndexingService } from "@/indexing/index.js";
 import { createSyncStore } from "@/sync-store/index.js";
 import { type Event, decodeEvents } from "@/sync/events.js";
-import { createSync } from "@/sync/index.js";
+import { type RealtimeEvent, createSync } from "@/sync/index.js";
 import {
   type Checkpoint,
   isCheckpointEqual,
@@ -103,28 +103,26 @@ export async function run({
     syncStore,
     networks,
     sources,
-    // Note: this is not great because it references the
-    // `realtimeQueue` which isn't defined yet
-    // onRealtimeEvent: (realtimeEvent) => {
-    //   realtimeQueue.add(realtimeEvent);
-    // },
-    // onFatalError,
+    onRealtimeEvent: (realtimeEvent) => {
+      realtimeQueue.add(realtimeEvent);
+    },
+    onFatalError,
     // initialCheckpoint,
   });
 
   const handleEvents = async (events: Event[]) => {
-    if (events.length === 0) return { status: "success" } as const;
-    return await indexingService.processEvents({ events });
+    if (events.length === 0) return;
+    const result = await indexingService.processEvents({ events });
+    if (result.status === "error") {
+      onReloadableError(result.error);
+    }
   };
 
-  const handleReorg = async (safeCheckpoint: Checkpoint) => {
-    await database.revert({
-      checkpoint: safeCheckpoint,
-      namespaceInfo,
-    });
+  const handleReorg = async (checkpoint: string) => {
+    await database.revert({ checkpoint, namespaceInfo });
   };
 
-  const handleFinalize = async (checkpoint: Checkpoint) => {
+  const handleFinalize = async (checkpoint: string) => {
     await database.updateFinalizedCheckpoint({ checkpoint });
   };
 
@@ -134,22 +132,13 @@ export async function run({
     concurrency: 1,
     worker: async (event: RealtimeEvent) => {
       switch (event.type) {
-        case "newEvents": {
+        case "block": {
           // Note: statusBlocks should be assigned before any other
           // asynchronous statements in order to prevent race conditions and
           // ensure its correctness.
           // const statusBlocks = syncService.getStatusBlocks(event.toCheckpoint);
 
-          for await (const rawEvents of syncStore.getEvents({
-            sources,
-            fromCheckpoint: event.fromCheckpoint,
-            toCheckpoint: event.toCheckpoint,
-          })) {
-            const result = await handleEvents(
-              decodeEvents(syncService, rawEvents),
-            );
-            if (result.status === "error") onReloadableError(result.error);
-          }
+          await handleEvents(decodeEvents({ sources, events: event.events }));
 
           // set status to most recently processed realtime block or end block
           // for each chain.
@@ -159,12 +148,12 @@ export async function run({
           //   }
           // }
 
-          await metadataStore.setStatus(status);
+          // await metadataStore.setStatus(status);
 
           break;
         }
         case "reorg":
-          await handleReorg(event.safeCheckpoint);
+          await handleReorg(event.checkpoint);
           break;
 
         case "finalize":
@@ -224,13 +213,7 @@ export async function run({
 
     // Run historical indexing until complete.
     for await (const events of sync.getEvents()) {
-      const result = await handleEvents(decodeEvents({ sources, events }));
-      if (result.status === "killed") {
-        return;
-      } else if (result.status === "error") {
-        onReloadableError(result.error);
-        return;
-      }
+      await handleEvents(decodeEvents({ sources, events }));
     }
 
     await historicalStore.flush({ isFullFlush: true });
@@ -244,7 +227,7 @@ export async function run({
     if (database.kind === "postgres") {
       await database.publish();
     }
-    // await handleFinalize(syncService.finalizedCheckpoint);
+    // await handleFinalize(sync.finalizedCheckpoint);
 
     await database.createIndexes({ schema });
 
@@ -259,9 +242,9 @@ export async function run({
       }),
     };
 
-    // indexingService.updateIndexingStore({ indexingStore, schema });
+    indexingService.updateIndexingStore({ indexingStore, schema });
 
-    // syncService.startRealtime();
+    sync.startRealtime();
 
     // set status to ready and set blocks to most recently processed
     // or end block
@@ -285,7 +268,7 @@ export async function run({
 
   return async () => {
     indexingService.kill();
-    // await syncService.kill();
+    await sync.kill();
     realtimeQueue.pause();
     realtimeQueue.clear();
     await realtimeQueue.onIdle();

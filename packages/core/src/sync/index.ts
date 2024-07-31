@@ -12,6 +12,7 @@ import {
   maxCheckpoint,
   zeroCheckpoint,
 } from "@/utils/checkpoint.js";
+import type { Interval } from "@/utils/interval.js";
 import { never } from "@/utils/never.js";
 import { type Transport, hexToBigInt, hexToNumber } from "viem";
 import { _eth_getBlockByNumber } from "../utils/rpc.js";
@@ -24,7 +25,7 @@ export type Sync = {
   getEvents(): AsyncGenerator<RawEvent[]>;
   startRealtime(): void;
   getCachedTransport(network: Network): Transport;
-  kill(): void;
+  kill(): Promise<void>;
 };
 
 export type RealtimeEvent =
@@ -53,7 +54,7 @@ type CreateSyncParameters = {
 export const createSync = async (args: CreateSyncParameters): Promise<Sync> => {
   // Network-specific syncs
   const localSyncs = new Map<Network, LocalSync>();
-  // const realtimeSyncs = new Map<Network, RealtimeSyncService>();
+  const realtimeSyncs = new Map<Network, RealtimeSyncService>();
 
   // Create a `LocalSync` for each network, populating `localSyncs`.
   await Promise.all(
@@ -73,7 +74,7 @@ export const createSync = async (args: CreateSyncParameters): Promise<Sync> => {
   /**
    * Returns the minimum checkpoint across all chains.
    *
-   * Note: `historicalSync.latestBlock` is assumed to be defined if
+   * Note: `localSync.latestBlock` is assumed to be defined if
    * this function is called with `tag`: "latest".
    */
   const getChainsCheckpoint = (
@@ -107,6 +108,7 @@ export const createSync = async (args: CreateSyncParameters): Promise<Sync> => {
    *
    * TODO(kyle) programmatically refetch finalized blocks to avoid exiting too early
    */
+
   async function* getEventsOmni() {
     const start = getChainsCheckpoint("start");
     const end = getChainsCheckpoint("finalized");
@@ -153,32 +155,132 @@ export const createSync = async (args: CreateSyncParameters): Promise<Sync> => {
 
   /**
    * Omnichain `onRealtimeSyncEvent`
+   *
+   * Handle callback events across all `args.networks`, and raising these
+   * events to `args.onRealtimeEvent` while maintaining checkpoint ordering.
+   *
+   * Note: "block" events are still being handled by writing and reading from
+   * the sync-store. This approach is not future proof and inefficient.
+   *
+   * TODO(kyle) is async bad?
+   * TODO(kyle) handle errors
    */
   const onRealtimeSyncEventOmni =
-    (localSync: LocalSync) => (event: RealtimeSyncEvent) => {
+    (network: Network) => async (event: RealtimeSyncEvent) => {
+      const localSync = localSyncs.get(network)!;
+      const realtimeSync = realtimeSyncs.get(network)!;
       switch (event.type) {
+        /**
+         * Handle a new block being ingested.
+         */
         case "block":
-          localSync.finalizedBlock = event.block;
-          break;
+          {
+            /**
+             * Newly ingested range.
+             *
+             * Note: It is an invariant that "block" events are emitted
+             * in a continuous order.
+             */
+            const interval = [
+              hexToNumber(event.block.number),
+              hexToNumber(event.block.number),
+            ] satisfies Interval;
 
+            const filters = args.sources
+              .filter(({ filter }) => filter.chainId === network.chainId)
+              .map(({ filter }) => filter);
+
+            // Add newly synced data to the "event" table.
+            await Promise.all(
+              filters.map((filter) =>
+                args.syncStore.populateEvents({ filter, interval }),
+              ),
+            );
+
+            // Update local sync, record checkpoint before and after
+            let from = getChainsCheckpoint("latest");
+            localSync.latestBlock = event.block;
+            const to = getChainsCheckpoint("latest");
+
+            /*
+             * Extract events with `syncStore.getEvents()`, paginating to
+             * avoid loading too many events into memory.
+             */
+            while (true) {
+              if (from === to) break;
+              const { events, cursor } = await args.syncStore.getEvents({
+                filters,
+                from,
+                to,
+                limit: 10_000,
+              });
+              args.onRealtimeEvent({ type: "block", events });
+              from = cursor;
+            }
+          }
+          break;
+        /**
+         * Handle a new block being finalized.
+         */
         case "finalize":
           {
+            // Newly finalized range
+            const interval = [
+              hexToNumber(localSync.finalizedBlock.number),
+              hexToNumber(event.block.number),
+            ] satisfies Interval;
+
+            // Update local sync, record checkpoint before and after
             const prev = getChainsCheckpoint("finalized");
             localSync.finalizedBlock = event.block;
             const checkpoint = getChainsCheckpoint("finalized");
 
-            // TODO(kyle) maybe kill realtime
+            const filters = args.sources
+              .filter(({ filter }) => filter.chainId === network.chainId)
+              .map(({ filter }) => filter);
+            // Insert an interval for the newly finalized range.
+            await Promise.all(
+              filters.map((filter) =>
+                args.syncStore.insertInterval({
+                  filterType: "event",
+                  filter,
+                  interval,
+                }),
+              ),
+            );
 
+            // Raise event to parent function (runtime)
             if (checkpoint > prev) {
               args.onRealtimeEvent({ type: "finalize", checkpoint });
             }
+
+            /**
+             * The realtime service can be killed if `endBlock` is
+             * defined has become finalized.
+             */
+            if (localSync.isComplete()) {
+              args.common.logger.info({
+                service: "sync",
+                msg: `Synced final end block for '${network.name}' (${hexToNumber(localSync.endBlock!.number)}), killing realtime sync service`,
+              });
+              await realtimeSync.kill();
+              // Delete syncs to remove `network` from checkpoint calculations
+              localSyncs.delete(network);
+              realtimeSyncs.delete(network);
+            }
           }
           break;
-
+        /**
+         * Handle a reorg with a new common ancestor block being found.
+         */
         case "reorg":
           {
+            // Update local sync
             localSync.latestBlock = event.block;
             const checkpoint = getChainsCheckpoint("latest");
+
+            // await args.syncStore.pruneByBlock();
+
             args.onRealtimeEvent({ type: "reorg", checkpoint });
           }
           break;
@@ -193,29 +295,26 @@ export const createSync = async (args: CreateSyncParameters): Promise<Sync> => {
     startRealtime() {
       for (const network of args.networks) {
         const localSync = localSyncs.get(network)!;
-        if (
-          localSync.endBlock !== undefined &&
-          hexToNumber(localSync.finalizedBlock.number) >=
-            hexToNumber(localSync.endBlock.number)
-        ) {
+
+        // A `network` doesn't need a realtime sync if `endBlock` is finalized
+        if (localSync.isComplete()) {
+          // Delete sync to remove from checkpoint calculations
           localSyncs.delete(network);
         } else {
+          // Create and start realtime sync
           const realtimeSync = createRealtimeSyncService({
             common: args.common,
-            syncStore: args.syncStore,
             network,
             requestQueue: localSync.requestQueue,
             sources: args.sources.filter(
               ({ filter }) => filter.chainId === network.chainId,
             ),
             finalizedBlock: localSync.finalizedBlock,
-            onEvent: onRealtimeSyncEventOmni(localSync),
+            onEvent: onRealtimeSyncEventOmni(network),
             onFatalError: args.onFatalError,
           });
-
           realtimeSync.start();
-
-          // realtimeSyncs.set(network, realtimeSync);
+          realtimeSyncs.set(network, realtimeSync);
         }
       }
     },
@@ -223,10 +322,18 @@ export const createSync = async (args: CreateSyncParameters): Promise<Sync> => {
       const { requestQueue } = localSyncs.get(network)!;
       return cachedTransport({ requestQueue, syncStore: args.syncStore });
     },
-    kill() {
+    async kill() {
+      const promises: Promise<void>[] = [];
       for (const network of args.networks) {
-        localSyncs.get(network)!.kill();
+        /**
+         * Some or all networks may be undefined, depending
+         * on progress and `endBlock` configuration.
+         */
+        localSyncs.get(network)?.kill();
+        const realtimeSync = realtimeSyncs.get(network);
+        if (realtimeSync) promises.push(realtimeSync.kill());
       }
+      await Promise.all(promises);
     },
   };
 };

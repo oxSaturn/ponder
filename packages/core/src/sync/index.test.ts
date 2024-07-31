@@ -17,10 +17,11 @@ test("createSync()", async (context) => {
 
   const sync = await createSync({
     syncStore,
-
     sources: context.sources,
     common: context.common,
     networks: context.networks,
+    onRealtimeEvent: () => {},
+    onFatalError: () => {},
   });
 
   expect(sync).toBeDefined();
@@ -36,6 +37,8 @@ test("getEvents() returns events", async (context) => {
     sources: context.sources,
     common: context.common,
     networks: context.networks,
+    onRealtimeEvent: () => {},
+    onFatalError: () => {},
   });
 
   const events = await drainAsyncGenerator(sync.getEvents());
@@ -54,6 +57,8 @@ test("getEvents() with cache", async (context) => {
     sources: context.sources,
     common: context.common,
     networks: context.networks,
+    onRealtimeEvent: () => {},
+    onFatalError: () => {},
   });
 
   await drainAsyncGenerator(sync.getEvents());
@@ -65,6 +70,8 @@ test("getEvents() with cache", async (context) => {
     sources: context.sources,
     common: context.common,
     networks: context.networks,
+    onRealtimeEvent: () => {},
+    onFatalError: () => {},
   });
 
   const events = await drainAsyncGenerator(sync.getEvents());
@@ -73,6 +80,23 @@ test("getEvents() with cache", async (context) => {
 
   expect(events).toBeDefined();
   expect(events).toHaveLength(1);
+
+  await cleanup();
+});
+
+test("startRealtime()", async (context) => {
+  const { cleanup, syncStore } = await setupDatabaseServices(context);
+
+  const sync = await createSync({
+    syncStore,
+    sources: context.sources,
+    common: context.common,
+    networks: context.networks,
+    onRealtimeEvent: () => {},
+    onFatalError: () => {},
+  });
+
+  sync.startRealtime();
 
   await cleanup();
 });

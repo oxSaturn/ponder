@@ -1,11 +1,11 @@
-import { encodeAsText } from "@/utils/encoding.js";
-import { toLowerCase } from "@/utils/lowercase.js";
 import type {
   SyncBlock,
   SyncLog,
   SyncTransaction,
   SyncTransactionReceipt,
-} from "@/utils/rpc.js";
+} from "@/types/sync.js";
+import { encodeAsText } from "@/utils/encoding.js";
+import { toLowerCase } from "@/utils/lowercase.js";
 import { replaceBigInts } from "@ponder/utils";
 import type { Generated, Insertable } from "kysely";
 import type { Address, Hash, Hex } from "viem";

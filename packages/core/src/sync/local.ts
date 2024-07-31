@@ -16,6 +16,8 @@ export type LocalSync = {
   latestBlock: SyncBlock | undefined;
   finalizedBlock: SyncBlock;
   sync(): Promise<void>;
+  /** Returns true when `finalizedBlock` is closer to tip than `endBlock` */
+  isComplete(): boolean;
   kill(): void;
 };
 
@@ -92,9 +94,10 @@ export const createLocalSync = async (
   // Cursor to track progress.
   let fromBlock = hexToNumber(startBlock.number);
 
+  // `latestBlock` override. Set during realtime sync
   let _latestBlock: SyncBlock | undefined;
 
-  return {
+  const localSync = {
     requestQueue,
     startBlock,
     endBlock,
@@ -139,8 +142,17 @@ export const createLocalSync = async (
 
       await historicalSync.sync(interval);
     },
+    isComplete() {
+      if (this.endBlock === undefined) return false;
+      return (
+        hexToNumber(this.finalizedBlock.number) >=
+        hexToNumber(this.endBlock.number)
+      );
+    },
     kill() {
       historicalSync.kill();
     },
   };
+
+  return localSync;
 };

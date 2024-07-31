@@ -1,14 +1,16 @@
 import type { Common } from "@/common/common.js";
 import type { Network } from "@/config/networks.js";
 import type { Source } from "@/sync/source.js";
-import type { SyncTransaction } from "@/types/sync.js";
-import { type Checkpoint, maxCheckpoint } from "@/utils/checkpoint.js";
+import type {
+  SyncBlock,
+  SyncCallTrace,
+  SyncLog,
+  SyncTrace,
+  SyncTransaction,
+} from "@/types/sync.js";
 import { range } from "@/utils/range.js";
 import type { RequestQueue } from "@/utils/requestQueue.js";
 import {
-  type SyncBlock,
-  type SyncCallTrace,
-  type SyncLog,
   _eth_getBlockByHash,
   _eth_getBlockByNumber,
   _eth_getLogs,
@@ -25,7 +27,6 @@ import { type LightBlock, syncBlockToLightBlock } from "./format.js";
 export type Service = {
   // static
   common: Common;
-  syncStore: SyncStore;
   network: Network;
   requestQueue: RequestQueue;
   sources: Source[];
@@ -48,12 +49,12 @@ export type Service = {
   onFatalError: (error: Error) => void;
 
   // derived static
-  hasTransactionReceiptSource: boolean;
-  logSources: LogSource[];
-  factoryLogSources: FactoryLogSource[];
-  callTraceSources: CallTraceSource[];
-  factoryCallTraceSources: FactoryCallTraceSource[];
-  blockSources: BlockSource[];
+  // hasTransactionReceiptSource: boolean;
+  // logSources: LogSource[];
+  // factoryLogSources: FactoryLogSource[];
+  // callTraceSources: CallTraceSource[];
+  // factoryCallTraceSources: FactoryCallTraceSource[];
+  // blockSources: BlockSource[];
 };
 
 export type RealtimeSyncEvent =
@@ -79,7 +80,6 @@ const MAX_QUEUED_BLOCKS = 25;
 
 export const create = ({
   common,
-  syncStore,
   network,
   requestQueue,
   sources,
@@ -88,7 +88,6 @@ export const create = ({
   onFatalError,
 }: {
   common: Common;
-  syncStore: SyncStore;
   network: Network;
   requestQueue: RequestQueue;
   sources: Source[];
@@ -96,15 +95,14 @@ export const create = ({
   onEvent: (event: RealtimeSyncEvent) => void;
   onFatalError: (error: Error) => void;
 }): Service => {
-  const logSources = sources.filter(sourceIsLog);
-  const factoryLogSources = sources.filter(sourceIsFactoryLog);
-  const blockSources = sources.filter(sourceIsBlock);
-  const callTraceSources = sources.filter(sourceIsCallTrace);
-  const factoryCallTraceSources = sources.filter(sourceIsFactoryCallTrace);
+  // const logSources = sources.filter(sourceIsLog);
+  // const factoryLogSources = sources.filter(sourceIsFactoryLog);
+  // const blockSources = sources.filter(sourceIsBlock);
+  // const callTraceSources = sources.filter(sourceIsCallTrace);
+  // const factoryCallTraceSources = sources.filter(sourceIsFactoryCallTrace);
 
   return {
     common,
-    syncStore,
     network,
     requestQueue,
     sources,
@@ -115,14 +113,14 @@ export const create = ({
     consecutiveErrors: 0,
     onEvent,
     onFatalError,
-    hasTransactionReceiptSource:
-      logSources.some((s) => s.criteria.includeTransactionReceipts) ||
-      factoryLogSources.some((s) => s.criteria.includeTransactionReceipts),
-    logSources,
-    factoryLogSources,
-    callTraceSources,
-    factoryCallTraceSources,
-    blockSources,
+    // hasTransactionReceiptSource:
+    //   logSources.some((s) => s.criteria.includeTransactionReceipts) ||
+    //   factoryLogSources.some((s) => s.criteria.includeTransactionReceipts),
+    // logSources,
+    // factoryLogSources,
+    // callTraceSources,
+    // factoryCallTraceSources,
+    // blockSources,
   };
 };
 
@@ -177,7 +175,7 @@ export const start = (service: Service) => {
           );
           const pendingBlocks = await Promise.all(
             missingBlockRange.map((blockNumber) =>
-              _eth_getBlockByNumber(service, { blockNumber }),
+              _eth_getBlockByNumber(service.requestQueue, { blockNumber }),
             ),
           );
 
@@ -265,7 +263,7 @@ export const start = (service: Service) => {
 
   const enqueue = async () => {
     try {
-      const block = await _eth_getBlockByNumber(service, {
+      const block = await _eth_getBlockByNumber(service.requestQueue, {
         blockTag: "latest",
       });
 
@@ -334,13 +332,13 @@ export const handleBlock = async (
       bloom: newHeadBlock.logsBloom,
       logFilters: service.logSources.map((s) => s.criteria),
     });
-  const shouldRequestTraces =
-    service.callTraceSources.length > 0 ||
-    service.factoryCallTraceSources.length > 0;
+  // const shouldRequestTraces =
+  //   service.callTraceSources.length > 0 ||
+  //   service.factoryCallTraceSources.length > 0;
 
   // Request logs
   const blockLogs = shouldRequestLogs
-    ? await _eth_getLogs(service, { blockHash: newHeadBlock.hash })
+    ? await _eth_getLogs(service.requestQueue, { blockHash: newHeadBlock.hash })
     : [];
   const newLogs = await getMatchedLogs(service, {
     logs: blockLogs,
@@ -369,11 +367,12 @@ export const handleBlock = async (
   }
 
   // Request traces
-  const blockTraces = shouldRequestTraces
-    ? await _trace_block(service, {
-        blockNumber: newHeadBlockNumber,
-      })
-    : [];
+  // const blockTraces = shouldRequestTraces
+  //   ? await _trace_block(service, {
+  //       blockNumber: newHeadBlockNumber,
+  //     })
+  //   : [];
+  const blockTraces: SyncTrace[] = [];
   const blockCallTraces = blockTraces.filter(
     (trace) => trace.type === "call",
   ) as SyncCallTrace[];
@@ -394,15 +393,15 @@ export const handleBlock = async (
 
   // Protect against RPCs returning empty traces. Known to happen near chain tip.
   // Use the fact that any stateRoot change produces a trace.
-  if (
-    shouldRequestTraces &&
-    newHeadBlock.transactions.length !== 0 &&
-    blockTraces.length === 0
-  ) {
-    throw new Error(
-      `Detected invalid '${service.network.name}' trace_block response.`,
-    );
-  }
+  // if (
+  //   shouldRequestTraces &&
+  //   newHeadBlock.transactions.length !== 0 &&
+  //   blockTraces.length === 0
+  // ) {
+  //   throw new Error(
+  //     `Detected invalid '${service.network.name}' trace_block response.`,
+  //   );
+  // }
 
   const transactionHashes = new Set<Hash>();
   for (const log of newLogs) {
@@ -449,16 +448,16 @@ export const handleBlock = async (
       0,
   );
 
-  if (hasLogEvent || hasCallTraceEvent || hasBlockEvent) {
-    await service.syncStore.insertRealtimeBlock({
-      chainId: service.network.chainId,
-      block: newHeadBlock,
-      transactions,
-      transactionReceipts: newTransactionReceipts,
-      logs: newLogs,
-      traces: newPersistentCallTraces,
-    });
-  }
+  // if (hasLogEvent || hasCallTraceEvent || hasBlockEvent) {
+  //   await service.syncStore.insertRealtimeBlock({
+  //     chainId: service.network.chainId,
+  //     block: newHeadBlock,
+  //     transactions,
+  //     transactionReceipts: newTransactionReceipts,
+  //     logs: newLogs,
+  //     traces: newPersistentCallTraces,
+  //   });
+  // }
 
   if (hasLogEvent || hasCallTraceEvent) {
     const logCountText =
@@ -482,14 +481,8 @@ export const handleBlock = async (
   service.localChain.push(syncBlockToLightBlock(newHeadBlock));
 
   service.onEvent({
-    type: "checkpoint",
-    chainId: service.network.chainId,
-    checkpoint: {
-      ...maxCheckpoint,
-      blockTimestamp: newHeadBlockTimestamp,
-      chainId: BigInt(service.network.chainId),
-      blockNumber: BigInt(newHeadBlockNumber),
-    } satisfies Checkpoint,
+    type: "block",
+    block: newHeadBlock,
   });
 
   service.common.metrics.ponder_realtime_latest_block_number.set(
@@ -517,20 +510,20 @@ export const handleBlock = async (
 
     // Insert cache intervals into the store and update the local chain.
     // Ordering is important here because the database query can fail.
-    await service.syncStore.insertRealtimeInterval({
-      chainId: service.network.chainId,
-      logFilters: service.logSources.map((l) => l.criteria),
-      factoryLogFilters: service.factoryLogSources.map((f) => f.criteria),
-      blockFilters: service.blockSources.map((b) => b.criteria),
-      traceFilters: service.callTraceSources.map((f) => f.criteria),
-      factoryTraceFilters: service.factoryCallTraceSources.map(
-        (f) => f.criteria,
-      ),
-      interval: {
-        startBlock: BigInt(service.finalizedBlock.number + 1),
-        endBlock: BigInt(pendingFinalizedBlock.number),
-      },
-    });
+    // await service.syncStore.insertRealtimeInterval({
+    //   chainId: service.network.chainId,
+    //   logFilters: service.logSources.map((l) => l.criteria),
+    //   factoryLogFilters: service.factoryLogSources.map((f) => f.criteria),
+    //   blockFilters: service.blockSources.map((b) => b.criteria),
+    //   traceFilters: service.callTraceSources.map((f) => f.criteria),
+    //   factoryTraceFilters: service.factoryCallTraceSources.map(
+    //     (f) => f.criteria,
+    //   ),
+    //   interval: {
+    //     startBlock: BigInt(service.finalizedBlock.number + 1),
+    //     endBlock: BigInt(pendingFinalizedBlock.number),
+    //   },
+    // });
 
     service.common.logger.debug({
       service: "realtime",
@@ -547,13 +540,7 @@ export const handleBlock = async (
 
     service.onEvent({
       type: "finalize",
-      chainId: service.network.chainId,
-      checkpoint: {
-        ...maxCheckpoint,
-        blockTimestamp: service.finalizedBlock.timestamp,
-        chainId: BigInt(service.network.chainId),
-        blockNumber: BigInt(service.finalizedBlock.number),
-      } satisfies Checkpoint,
+      block: pendingFinalizedBlock,
     });
   }
 
@@ -596,22 +583,16 @@ export const handleReorg = async (
     });
 
     if (parentBlock.hash === remoteBlock.parentHash) {
-      await service.syncStore.deleteRealtimeData({
-        chainId: service.network.chainId,
-        fromBlock: BigInt(parentBlock.number),
-      });
+      // await service.syncStore.deleteRealtimeData({
+      //   chainId: service.network.chainId,
+      //   fromBlock: BigInt(parentBlock.number),
+      // });
 
       service.localChain = newLocalChain;
 
       service.onEvent({
         type: "reorg",
-        chainId: service.network.chainId,
-        safeCheckpoint: {
-          ...maxCheckpoint,
-          blockTimestamp: parentBlock.timestamp,
-          chainId: BigInt(service.network.chainId),
-          blockNumber: BigInt(parentBlock.number),
-        },
+        block: parentBlock,
       });
 
       service.common.logger.warn({
@@ -626,7 +607,7 @@ export const handleReorg = async (
 
     if (newLocalChain.length === 0) break;
     else {
-      remoteBlock = await _eth_getBlockByHash(service, {
+      remoteBlock = await _eth_getBlockByHash(service.requestQueue, {
         hash: remoteBlock.parentHash,
       });
       newLocalChain.pop();
@@ -648,21 +629,21 @@ export const handleReorg = async (
  * Find the most recent block that is less than or equal to
  * the provided checkpoint.
  */
-export const getMostRecentBlock = (
-  service: Service,
-  checkpoint: Checkpoint,
-): LightBlock | undefined => {
-  const localBlock = service.localChain.findLast(
-    (block) => block.timestamp <= checkpoint.blockTimestamp,
-  );
+// export const getMostRecentBlock = (
+//   service: Service,
+//   checkpoint: Checkpoint,
+// ): LightBlock | undefined => {
+//   const localBlock = service.localChain.findLast(
+//     (block) => block.timestamp <= checkpoint.blockTimestamp,
+//   );
 
-  if (localBlock !== undefined) return localBlock;
+//   if (localBlock !== undefined) return localBlock;
 
-  if (service.finalizedBlock.timestamp < checkpoint.blockTimestamp)
-    return service.finalizedBlock;
+//   if (service.finalizedBlock.timestamp < checkpoint.blockTimestamp)
+//     return service.finalizedBlock;
 
-  return undefined;
-};
+//   return undefined;
+// };
 
 const getMatchedLogs = async (
   service: Service,
