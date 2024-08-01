@@ -1,47 +1,72 @@
-import {
-  isContractAddressInBloom,
-  isTopicInBloom,
-} from "ethereum-bloom-filters";
-import type { Address, Hex, LogTopic } from "viem";
+import { type LogFilter, isAddressFilter } from "@/sync/source.js";
+import { type Hex, hexToBytes, keccak256 } from "viem";
 
 export const zeroLogsBloom =
   "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
 
-export function isMatchedLogInBloomFilter({
+const BLOOM_SIZE_BYTES = 256;
+
+export const isInBloom = (_bloom: Hex, input: Hex): boolean => {
+  const bloom = hexToBytes(_bloom);
+  const hash = hexToBytes(keccak256(input));
+
+  for (const i of [0, 2, 4]) {
+    const bit = (hash[i + 1]! + (hash[i]! << 8)) & 0x7ff;
+    if (
+      (bloom[BLOOM_SIZE_BYTES - 1 - Math.floor(bit / 8)]! &
+        (1 << (bit % 8))) ===
+      0
+    )
+      return false;
+  }
+
+  return true;
+};
+
+// TODO(kyle) consider block number
+export function isFilterInBloom({
   bloom,
-  logFilters,
-}: {
-  bloom: Hex;
-  logFilters: {
-    address?: Address | Address[];
-    topics?: LogTopic[];
-  }[];
-}) {
-  const allAddresses: Address[] = [];
-  logFilters.forEach((logFilter) => {
-    const address =
-      logFilter.address === undefined
-        ? []
-        : Array.isArray(logFilter.address)
-          ? logFilter.address
-          : [logFilter.address];
-    allAddresses.push(...address);
-  });
-  if (allAddresses.some((a) => isContractAddressInBloom(bloom, a))) {
-    return true;
+  filter,
+}: { bloom: Hex; filter: LogFilter }): boolean {
+  if (isAddressFilter(filter.address)) {
+    return;
   }
 
-  const allTopics: Hex[] = [];
-  logFilters.forEach((logFilter) => {
-    logFilter.topics?.forEach((topic) => {
-      if (topic === null) return;
-      if (Array.isArray(topic)) allTopics.push(...topic);
-      else allTopics.push(topic);
-    });
-  });
-  if (allTopics.some((a) => isTopicInBloom(bloom, a))) {
-    return true;
+  let isAddressInBloom: boolean;
+  let isTopicsInBloom: boolean;
+
+  if (filter.address === undefined) isAddressInBloom = true;
+  else if (isAddressFilter(filter.address)) {
+    isAddressInBloom = isFilterInBloom({ bloom, filter: filter.address });
+  } else if (Array.isArray(filter.address)) {
+    if (filter.address.length === 0) {
+      isAddressInBloom = true;
+    } else {
+      isAddressInBloom = filter.address.some((address) =>
+        isInBloom(bloom, address),
+      );
+    }
+  } else {
+    // single address case
+    isAddressInBloom = isInBloom(bloom, filter.address);
   }
 
-  return false;
+  if ("eventSelector" in filter) {
+  } else {
+    if (filter.topics === undefined || filter.topics.length === 0) {
+      isTopicsInBloom = true;
+    } else {
+      isTopicsInBloom = filter.topics.some((topic) => {
+        if (topic === null || topic === undefined) {
+          return true;
+        } else if (Array.isArray(topic)) {
+          return topic.some((t) => isInBloom(bloom, t));
+        } else {
+          return isInBloom(bloom, topic);
+        }
+      });
+    }
+  }
+
+  return isAddressInBloom && isTopicsInBloom;
 }

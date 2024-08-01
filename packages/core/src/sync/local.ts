@@ -2,7 +2,7 @@ import type { Common } from "@/common/common.js";
 import type { Network } from "@/config/networks.js";
 import { createHistoricalSync } from "@/sync-historical/index.js";
 import type { SyncStore } from "@/sync-store/index.js";
-import type { SyncBlock } from "@/types/sync.js";
+import type { LightBlock } from "@/types/sync.js";
 import type { Interval } from "@/utils/interval.js";
 import { type RequestQueue, createRequestQueue } from "@/utils/requestQueue.js";
 import { hexToNumber } from "viem";
@@ -11,10 +11,10 @@ import type { Source } from "./source.js";
 
 export type LocalSync = {
   requestQueue: RequestQueue;
-  startBlock: SyncBlock;
-  endBlock: SyncBlock | undefined;
-  latestBlock: SyncBlock | undefined;
-  finalizedBlock: SyncBlock;
+  startBlock: LightBlock;
+  endBlock: LightBlock | undefined;
+  latestBlock: LightBlock | undefined;
+  finalizedBlock: LightBlock;
   sync(): Promise<void>;
   /** Returns true when `finalizedBlock` is closer to tip than `endBlock` */
   isComplete(): boolean;
@@ -95,7 +95,7 @@ export const createLocalSync = async (
   let fromBlock = hexToNumber(startBlock.number);
 
   // `latestBlock` override. Set during realtime sync
-  let _latestBlock: SyncBlock | undefined;
+  let _latestBlock: LightBlock | undefined;
 
   const localSync = {
     requestQueue,

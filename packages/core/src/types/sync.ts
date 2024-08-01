@@ -18,6 +18,11 @@ export type SyncTrace =
   | SyncRewardTrace
   | SyncSuicideTrace;
 
+export type LightBlock = Pick<
+  SyncBlock,
+  "hash" | "parentHash" | "number" | "timestamp"
+>;
+
 export type SyncCallTrace = {
   action: {
     callType: "call" | "delegatecall" | "staticcall";

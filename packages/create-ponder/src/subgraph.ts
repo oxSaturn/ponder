@@ -10,22 +10,50 @@ import {
   validateGraphProtocolSource,
 } from "./helpers/validateGraphProtocolSource.js";
 
-const fetchIpfsFile = async (cid: string) => {
-  const url = `https://ipfs.network.thegraph.com/api/v0/cat?arg=${cid}`;
-  const response = await fetch(url);
-  const contentRaw = await response.text();
-  return contentRaw;
-};
+export const subgraphProviders = [
+  {
+    id: "thegraph",
+    name: "The Graph",
+    // Used to be https://ipfs.network.thegraph.com/api/v0/cat?arg=${cid}
+    // Also used to accept GET requests for some reason
+    fetchIpfs: async (cid: string) => {
+      const response = await fetch(
+        `https://api.thegraph.com/ipfs/api/v0/cat?arg=${cid}`,
+        { method: "POST" },
+      );
+      return await response.text();
+    },
+  },
+  {
+    id: "satsuma",
+    name: "Alchemy Subgraph (Satsuma)",
+    fetchIpfs: async (cid: string) => {
+      const response = await fetch(`https://ipfs.satsuma.xyz/ipfs/${cid}`);
+      return await response.text();
+    },
+  },
+] as const;
+
+type SubgraphProvider = (typeof subgraphProviders)[number];
+
+export type SubgraphProviderId = SubgraphProvider["id"];
 
 export const fromSubgraphId = async ({
   rootDir,
   subgraphId,
+  subgraphProvider,
 }: {
   rootDir: string;
   subgraphId: string;
+  subgraphProvider: SubgraphProviderId;
 }) => {
+  // Find provider
+  const provider = subgraphProviders.find((p) => p.id === subgraphProvider);
+  if (!provider)
+    throw new Error(`Unknown subgraph provider: ${subgraphProvider}`);
+
   // Fetch the manifest file.
-  const manifestRaw = await fetchIpfsFile(subgraphId);
+  const manifestRaw = await provider.fetchIpfs(subgraphId);
 
   const manifest = parse(manifestRaw);
 
@@ -56,7 +84,7 @@ export const fromSubgraphId = async ({
 
   await Promise.all(
     abiFiles.map(async (abi) => {
-      const abiContent = await fetchIpfsFile(abi.file["/"].slice(6));
+      const abiContent = await provider.fetchIpfs(abi.file["/"].slice(6));
       const abiPath = path.join(rootDir, `./abis/${abi.name}Abi.ts`);
       writeFileSync(
         abiPath,
@@ -75,10 +103,6 @@ export const fromSubgraphId = async ({
   const ponderContracts = dataSources.map((sourceInvalid) => {
     const source = validateGraphProtocolSource(sourceInvalid);
     const network = source.network || "mainnet";
-    const chainId = getGraphProtocolChainId(network);
-    if (!chainId || chainId === -1) {
-      throw new Error(`Unhandled network name: ${network}`);
-    }
     const abiRelativePath = `./abis/${source.source.abi}Abi.ts`;
 
     return {
@@ -98,10 +122,11 @@ export const fromSubgraphId = async ({
   const networksObject: any = {};
 
   ponderContracts.forEach((pc) => {
+    const chainId = getGraphProtocolChainId(pc.network);
     contractsObject[pc.name] = pc;
     networksObject[pc.network] = {
-      chainId: getGraphProtocolChainId(pc.network),
-      transport: `http(process.env.PONDER_RPC_URL_${getGraphProtocolChainId(pc.network)})`,
+      chainId,
+      transport: `http(process.env.PONDER_RPC_URL_${chainId})`,
     };
     contractsObject[pc.name].name = undefined;
   });

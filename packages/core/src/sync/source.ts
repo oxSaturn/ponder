@@ -1,3 +1,5 @@
+import type { SyncCallTrace, SyncLog } from "@/types/sync.js";
+import { toLowerCase } from "@/utils/lowercase.js";
 import type { Abi, Address, Hex, LogTopic } from "viem";
 
 type ContractMetadata = {
@@ -61,3 +63,56 @@ export const isAddressFilter = (
   if (address === undefined) return false;
   return typeof address !== "string" && Array.isArray(address) === false;
 };
+
+export function isLogFilterMatched({
+  log,
+  filter,
+}: { log: SyncLog; filter: LogFilter }) {
+  const logAddress = toLowerCase(log.address);
+
+  if (filter.address !== undefined && filter.address.length > 0) {
+    if (Array.isArray(filter.address)) {
+      if (!filter.address.includes(logAddress)) return false;
+    } else {
+      if (logAddress !== filter.address) return false;
+    }
+  }
+
+  if (filter.topics) {
+    for (const [index, topic] of filter.topics.entries()) {
+      if (topic === null || topic === undefined) continue;
+
+      if (log.topics[index] === null || log.topics[index] === undefined)
+        return false;
+
+      if (Array.isArray(topic)) {
+        if (!topic.includes(toLowerCase(log.topics[index]!))) return false;
+      } else {
+        if (toLowerCase(log.topics[index]!) !== topic) return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+export function isCallTraceFilterMatched({
+  callTrace,
+  filter,
+}: {
+  callTrace: SyncCallTrace;
+  filter: CallTraceFilter;
+}) {
+  const fromAddress = toLowerCase(callTrace.action.from);
+  const toAddress = toLowerCase(callTrace.action.to);
+
+  if (filter.fromAddress !== undefined && filter.fromAddress.length > 0) {
+    if (filter.fromAddress.includes(fromAddress) === false) return false;
+  }
+
+  if (filter.toAddress !== undefined && filter.toAddress.length > 0) {
+    if (filter.toAddress.includes(toAddress) === false) return false;
+  }
+
+  return true;
+}

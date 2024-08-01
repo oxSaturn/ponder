@@ -1,5 +1,33 @@
 # @ponder/core
 
+## 0.5.4
+
+### Patch Changes
+
+- [#1005](https://github.com/ponder-sh/ponder/pull/1005) [`bba168613896b84139d6546f8cf16855c5a3dcc9`](https://github.com/ponder-sh/ponder/commit/bba168613896b84139d6546f8cf16855c5a3dcc9) Thanks [@kyscott18](https://github.com/kyscott18)! - Enforced minimum polling interval of 100ms.
+
+## 0.5.3
+
+### Patch Changes
+
+- [#1000](https://github.com/ponder-sh/ponder/pull/1000) [`8bbe39048e7dff402bfc14a4f77a6c7d5f431069`](https://github.com/ponder-sh/ponder/commit/8bbe39048e7dff402bfc14a4f77a6c7d5f431069) Thanks [@kyscott18](https://github.com/kyscott18)! - Update bloom filter logic.
+
+## 0.5.2
+
+### Patch Changes
+
+- [#995](https://github.com/ponder-sh/ponder/pull/995) [`44f7bbcd000b47359003b84a771eaadb0d835fe7`](https://github.com/ponder-sh/ponder/commit/44f7bbcd000b47359003b84a771eaadb0d835fe7) Thanks [@erensanlier](https://github.com/erensanlier)! - Fixed a bug where the SQLite `directory` option in `ponder.config.ts` was not respected.
+
+## 0.5.1
+
+### Patch Changes
+
+- [#970](https://github.com/ponder-sh/ponder/pull/970) [`5b5a92ee9ab14fdd3cc4cc0b05e4aa1e69a77ad9`](https://github.com/ponder-sh/ponder/commit/5b5a92ee9ab14fdd3cc4cc0b05e4aa1e69a77ad9) Thanks [@robiiinos](https://github.com/robiiinos)! - Added `CASCADE` to the `DROP VIEW` statements that run during the PostgreSQL view publish step. This fixes a bug where Ponder would crash during the publish step if there were database objects dependent on the Ponder-managed views.
+
+- [#981](https://github.com/ponder-sh/ponder/pull/981) [`b715545ed416e409089e10b01aeb32cf26c4b384`](https://github.com/ponder-sh/ponder/commit/b715545ed416e409089e10b01aeb32cf26c4b384) Thanks [@robiiinos](https://github.com/robiiinos)! - Fixed a broken link to the telemetry documentation.
+
+- [#980](https://github.com/ponder-sh/ponder/pull/980) [`e039f1210a72409f5df268b38adf3d45360f5a14`](https://github.com/ponder-sh/ponder/commit/e039f1210a72409f5df268b38adf3d45360f5a14) Thanks [@0xOlias](https://github.com/0xOlias)! - Fixed an issue that prevented `ponder dev` from shutting down gracefully when using SQLite.
+
 ## 0.5.0
 
 ### Minor Changes

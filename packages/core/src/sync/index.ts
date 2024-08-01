@@ -1,12 +1,12 @@
 import type { Common } from "@/common/common.js";
 import type { Network } from "@/config/networks.js";
 import {
-  type RealtimeSyncService,
-  createRealtimeSyncService,
+  type RealtimeSync,
+  type RealtimeSyncEvent,
+  createRealtimeSync,
 } from "@/sync-realtime/index.js";
-import type { RealtimeSyncEvent } from "@/sync-realtime/service.js";
 import type { SyncStore } from "@/sync-store/index.js";
-import type { SyncBlock } from "@/types/sync.js";
+import type { LightBlock, SyncBlock } from "@/types/sync.js";
 import {
   checkpointMin,
   encodeCheckpoint,
@@ -53,6 +53,13 @@ export type Status = {
   };
 };
 
+export const syncBlockToLightBlock = ({
+  hash,
+  parentHash,
+  number,
+  timestamp,
+}: SyncBlock): LightBlock => ({ hash, parentHash, number, timestamp });
+
 type CreateSyncParameters = {
   common: Common;
   syncStore: SyncStore;
@@ -65,10 +72,10 @@ type CreateSyncParameters = {
 export const createSync = async (args: CreateSyncParameters): Promise<Sync> => {
   // Network-specific syncs and status
   const localSyncs = new Map<Network, LocalSync>();
-  const realtimeSyncs = new Map<Network, RealtimeSyncService>();
+  const realtimeSyncs = new Map<Network, RealtimeSync>();
   const status = new Map<
     Network,
-    { block: SyncBlock | undefined; sync: "historical" | "realtime" }
+    { block: LightBlock | undefined; sync: "historical" | "realtime" }
   >();
 
   // Create a `LocalSync` for each network, populating `localSyncs`.
@@ -122,7 +129,7 @@ export const createSync = async (args: CreateSyncParameters): Promise<Sync> => {
    * Note: `syncStore.getEvents` is used to order between multiple
    * networks. This approach is not future proof.
    *
-   * TODO(kyle) update status
+   * TODO(kyle) update status maybe using events
    * TODO(kyle) programmatically refetch finalized blocks to avoid exiting too early
    */
 
@@ -325,18 +332,17 @@ export const createSync = async (args: CreateSyncParameters): Promise<Sync> => {
           localSyncs.delete(network);
         } else {
           // Create and start realtime sync
-          const realtimeSync = createRealtimeSyncService({
+          const realtimeSync = createRealtimeSync({
             common: args.common,
             network,
             requestQueue: localSync.requestQueue,
             sources: args.sources.filter(
               ({ filter }) => filter.chainId === network.chainId,
             ),
-            finalizedBlock: localSync.finalizedBlock,
             onEvent: onEvent(network),
             onFatalError: args.onFatalError,
           });
-          realtimeSync.start();
+          realtimeSync.start(localSync.finalizedBlock);
           realtimeSyncs.set(network, realtimeSync);
         }
       }

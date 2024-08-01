@@ -5,7 +5,7 @@ import { toLowerCase } from "@/utils/lowercase.js";
 import type { SyncLog } from "@/utils/rpc.js";
 import { getAbiItem, getEventSelector, toHex } from "viem";
 import { beforeEach, expect, test } from "vitest";
-import { filterLogs } from "./filter.js";
+import { filterLogs } from "../sync-realtime/filter.js";
 
 beforeEach(setupCommon);
 beforeEach(setupAnvil);

@@ -24,7 +24,11 @@ import {
   validateProjectPath,
   validateTemplateName,
 } from "./helpers/validate.js";
-import { fromSubgraphId } from "./subgraph.js";
+import {
+  type SubgraphProviderId,
+  fromSubgraphId,
+  subgraphProviders,
+} from "./subgraph.js";
 
 const log = console.log;
 
@@ -259,7 +263,22 @@ export async function run({
   }
 
   let subgraph: string | undefined = options.subgraph;
+  let subgraphProvider: SubgraphProviderId | undefined =
+    options.subgraphProvider;
   if (templateMeta.id === "subgraph") {
+    if (subgraphProvider === undefined) {
+      const result = await prompts({
+        name: "subgraphProvider",
+        message: "Which provider is the subgraph deployed to?",
+        type: "select",
+        choices: subgraphProviders.map(({ id, name }) => ({
+          title: name,
+          value: id,
+        })),
+      });
+      subgraphProvider = result.subgraphProvider;
+    }
+
     if (!subgraph) {
       const result = await prompts({
         type: "text",
@@ -297,7 +316,11 @@ export async function run({
 
   if (templateMeta.id === "subgraph") {
     const result = await oraPromise(
-      fromSubgraphId({ rootDir: projectPath, subgraphId: subgraph! }),
+      fromSubgraphId({
+        rootDir: projectPath,
+        subgraphId: subgraph!,
+        subgraphProvider: subgraphProvider!,
+      }),
       {
         text: "Fetching subgraph metadata. This may take a few seconds.",
         failText: "Failed to fetch subgraph metadata.",
@@ -420,24 +443,26 @@ export async function run({
     "install",
     packageManager === "npm" ? "--quiet" : "--silent",
   ];
-  await oraPromise(
-    execa(packageManager, installArgs, {
-      cwd: projectPath,
-      env: {
-        ...process.env,
-        ADBLOCK: "1",
-        DISABLE_OPENCOLLECTIVE: "1",
-        // we set NODE_ENV to development as pnpm skips dev
-        // dependencies when production
-        NODE_ENV: "development",
+  if (!options.skipInstall) {
+    await oraPromise(
+      execa(packageManager, installArgs, {
+        cwd: projectPath,
+        env: {
+          ...process.env,
+          ADBLOCK: "1",
+          DISABLE_OPENCOLLECTIVE: "1",
+          // we set NODE_ENV to development as pnpm skips dev
+          // dependencies when production
+          NODE_ENV: "development",
+        },
+      }),
+      {
+        text: `Installing packages with ${pico.bold(packageManager)}. This may take a few seconds.`,
+        failText: "Failed to install packages.",
+        successText: `Installed packages with ${pico.bold(packageManager)}.`,
       },
-    }),
-    {
-      text: `Installing packages with ${pico.bold(packageManager)}. This may take a few seconds.`,
-      failText: "Failed to install packages.",
-      successText: `Installed packages with ${pico.bold(packageManager)}.`,
-    },
-  );
+    );
+  }
 
   // Create git repository
   if (!options.skipGit) {
@@ -503,15 +528,20 @@ export async function run({
       `Use a template. Options: ${templates.map(({ id }) => id).join(", ")}`,
     )
     .option("--etherscan [url]", "Use the Etherscan template")
-    .option("--subgraph [id]", "Use the subgraph template")
-    .option("--npm", "Use npm as your package manager")
-    .option("--pnpm", "Use pnpm as your package manager")
-    .option("--yarn", "Use yarn as your package manager")
-    .option("--skip-git", "Skip initializing a git repository")
     .option(
       "--etherscan-api-key [key]",
       "Etherscan API key for Etherscan template",
     )
+    .option("--subgraph [id]", "Use the subgraph template")
+    .option(
+      "--subgraph-provider [provider]",
+      `Specify the subgraph provider. Options: ${subgraphProviders.map(({ id }) => id).join(", ")}`,
+    )
+    .option("--npm", "Use npm as your package manager")
+    .option("--pnpm", "Use pnpm as your package manager")
+    .option("--yarn", "Use yarn as your package manager")
+    .option("--skip-git", "Skip initializing a git repository")
+    .option("--skip-install", "Skip installing packages")
     .help();
 
   // Check Nodejs version

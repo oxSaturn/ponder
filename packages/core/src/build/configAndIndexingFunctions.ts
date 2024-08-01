@@ -46,7 +46,12 @@ export async function buildConfigAndIndexingFunctions({
   // Build database.
   let databaseConfig: DatabaseConfig;
 
-  const sqliteDir = path.join(ponderDir, "sqlite");
+  // Determine SQLite directory, preferring config.database.directory if available
+  const sqliteDir =
+    config.database?.kind === "sqlite" && config.database.directory
+      ? path.resolve(config.database.directory)
+      : path.join(ponderDir, "sqlite");
+
   const sqlitePrintPath = path.relative(rootDir, sqliteDir);
 
   if (config.database?.kind) {
@@ -245,6 +250,15 @@ export async function buildConfigAndIndexingFunctions({
           });
         }
       });
+
+      if (
+        network.pollingInterval !== undefined &&
+        network.pollingInterval! < 100
+      ) {
+        throw new Error(
+          `Invalid 'pollingInterval' for network '${networkName}. Expected 100 milliseconds or greater, got ${network.pollingInterval} milliseconds.`,
+        );
+      }
 
       return {
         name: networkName,

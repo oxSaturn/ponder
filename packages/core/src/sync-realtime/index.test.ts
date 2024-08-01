@@ -6,15 +6,12 @@ import {
 } from "@/_test/setup.js";
 import { getRawRPCData, testClient } from "@/_test/utils.js";
 import type { Source } from "@/sync/source.js";
+import type { SyncBlock, SyncTrace } from "@/types/sync.js";
 import { maxCheckpoint } from "@/utils/checkpoint.js";
 import type { RequestQueue } from "@/utils/requestQueue.js";
-import {
-  type SyncBlock,
-  type SyncTrace,
-  _eth_getBlockByNumber,
-} from "@/utils/rpc.js";
+import { _eth_getBlockByNumber } from "@/utils/rpc.js";
 import { beforeEach, expect, test, vi } from "vitest";
-import { create, handleBlock, handleReorg, kill, start } from "./service.js";
+import { createRealtimeSync } from "./index.js";
 
 beforeEach(setupCommon);
 beforeEach(setupAnvil);
@@ -23,10 +20,9 @@ beforeEach(setupIsolatedDatabase);
 // Helper function used to spoof "trace_filter" requests
 // because they aren't supported by foundry.
 const getRequestQueue = async ({
-  sources,
   requestQueue,
 }: { sources: Source[]; requestQueue: RequestQueue }) => {
-  const rpcData = await getRawRPCData(sources);
+  const rpcData = await getRawRPCData();
 
   return {
     ...requestQueue,
@@ -52,29 +48,18 @@ const getRequestQueue = async ({
 
 test("createRealtimeSyncService()", async (context) => {
   const { common, networks, requestQueues, sources } = context;
-  const { syncStore, cleanup } = await setupDatabaseServices(context);
+  const { cleanup } = await setupDatabaseServices(context);
 
-  const finalizedBlock = await requestQueues[0].request({
-    method: "eth_getBlockByNumber",
-    params: ["0x0", false],
-  });
-
-  const realtimeSyncService = create({
+  const realtimeSync = createRealtimeSync({
     common,
-    syncStore,
     network: networks[0],
-    requestQueue: await getRequestQueue({
-      sources,
-      requestQueue: requestQueues[0],
-    }),
+    requestQueue: requestQueues[0],
     sources,
-    finalizedBlock: finalizedBlock as SyncBlock,
     onEvent: vi.fn(),
     onFatalError: vi.fn(),
   });
 
-  expect(realtimeSyncService.finalizedBlock.number).toBe(0);
-  expect(realtimeSyncService.localChain).toHaveLength(0);
+  expect(realtimeSync).toBeDefined();
 
   await cleanup();
 });
