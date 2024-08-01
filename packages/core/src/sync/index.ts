@@ -100,9 +100,20 @@ export const createSync = async (args: CreateSyncParameters): Promise<Sync> => {
    * Note: `localSync.latestBlock` is assumed to be defined if
    * this function is called with `tag`: "latest".
    */
-  const getChainsCheckpoint = (
-    tag: "start" | "latest" | "finalized",
-  ): string => {
+  const getChainsCheckpoint = <
+    tag extends "start" | "latest" | "finalized" | "end",
+  >(
+    tag: tag,
+  ): tag extends "end" ? string | undefined : string => {
+    if (
+      tag === "end" &&
+      args.networks.some(
+        (network) => localSyncs.get(network)!.endBlock === undefined,
+      )
+    ) {
+      return undefined as any;
+    }
+
     const checkpoints = args.networks.map((network) => {
       const localSync = localSyncs.get(network)!;
       const block = localSync[`${tag}Block`]!;
@@ -116,7 +127,7 @@ export const createSync = async (args: CreateSyncParameters): Promise<Sync> => {
         blockNumber: hexToBigInt(block.number),
       };
     });
-    return encodeCheckpoint(checkpointMin(...checkpoints));
+    return encodeCheckpoint(checkpointMin(...checkpoints)) as any;
   };
 
   /**
@@ -135,7 +146,7 @@ export const createSync = async (args: CreateSyncParameters): Promise<Sync> => {
 
   async function* getEvents() {
     const start = getChainsCheckpoint("start");
-    const end = getChainsCheckpoint("finalized");
+    const end = getChainsCheckpoint("end") ?? getChainsCheckpoint("finalized");
 
     // Cursor used to track progress.
     let from = start;

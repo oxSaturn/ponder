@@ -299,7 +299,7 @@ export const createHistoricalSync = async (
         )} complete${eta !== undefined ? ` and ~${formatEta(eta)} remaining` : ""}`,
       });
     }
-  }, 1_000);
+  }, 10_000);
 
   return {
     get latestBlock() {

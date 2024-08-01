@@ -23,21 +23,59 @@ export const isInBloom = (_bloom: Hex, input: Hex): boolean => {
   return true;
 };
 
-// TODO(kyle) consider block number
+/**
+ * Return true if `filter` is in `bloom`.
+ *
+ * A filter with an address of type `LogAddressFilter` is matched
+ * if the address filter is matched (new child contract) or the log
+ * filter is matched (log on child contract).
+ *
+ * Note: False positives are possible.
+ * TODO(kyle) consider block number
+ */
 export function isFilterInBloom({
   bloom,
   filter,
 }: { bloom: Hex; filter: LogFilter }): boolean {
-  if (isAddressFilter(filter.address)) {
-    return;
-  }
-
-  let isAddressInBloom: boolean;
   let isTopicsInBloom: boolean;
+  let isAddressInBloom: boolean;
+
+  if (filter.topics === undefined || filter.topics.length === 0) {
+    isTopicsInBloom = true;
+  } else {
+    isTopicsInBloom = filter.topics.some((topic) => {
+      if (topic === null || topic === undefined) {
+        return true;
+      } else if (Array.isArray(topic)) {
+        return topic.some((t) => isInBloom(bloom, t));
+      } else {
+        return isInBloom(bloom, topic);
+      }
+    });
+  }
 
   if (filter.address === undefined) isAddressInBloom = true;
   else if (isAddressFilter(filter.address)) {
-    isAddressInBloom = isFilterInBloom({ bloom, filter: filter.address });
+    // Return true if the `LogAddressFilter` is matched.
+
+    let _isAddressInBloom: boolean;
+    if (Array.isArray(filter.address.address)) {
+      if (filter.address.address.length === 0) {
+        _isAddressInBloom = true;
+      } else {
+        _isAddressInBloom = filter.address.address.some((address) =>
+          isInBloom(bloom, address),
+        );
+      }
+    } else {
+      _isAddressInBloom = isInBloom(bloom, filter.address.address);
+    }
+
+    if (_isAddressInBloom && isInBloom(bloom, filter.address.eventSelector)) {
+      return true;
+    }
+
+    isAddressInBloom = true;
   } else if (Array.isArray(filter.address)) {
     if (filter.address.length === 0) {
       isAddressInBloom = true;
@@ -49,23 +87,6 @@ export function isFilterInBloom({
   } else {
     // single address case
     isAddressInBloom = isInBloom(bloom, filter.address);
-  }
-
-  if ("eventSelector" in filter) {
-  } else {
-    if (filter.topics === undefined || filter.topics.length === 0) {
-      isTopicsInBloom = true;
-    } else {
-      isTopicsInBloom = filter.topics.some((topic) => {
-        if (topic === null || topic === undefined) {
-          return true;
-        } else if (Array.isArray(topic)) {
-          return topic.some((t) => isInBloom(bloom, t));
-        } else {
-          return isInBloom(bloom, topic);
-        }
-      });
-    }
   }
 
   return isAddressInBloom && isTopicsInBloom;

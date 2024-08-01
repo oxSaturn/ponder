@@ -41,7 +41,7 @@ export type BlockFilter = {
 export type LogAddressFilter = {
   type: "log";
   chainId: number;
-  address: Address | Address[] | AddressFilter;
+  address: Address | Address[];
   eventSelector: Hex;
   childAddressLocation: "topic1" | "topic2" | "topic3" | `offset${number}`;
 };
@@ -64,6 +64,8 @@ export const isAddressFilter = (
   return typeof address !== "string" && Array.isArray(address) === false;
 };
 
+// TODO(kyle) consider start and end block
+// TODO(kyle) normalize logs before
 export function isLogFilterMatched({
   log,
   filter,
@@ -101,6 +103,7 @@ export function isCallTraceFilterMatched({
   filter,
 }: {
   callTrace: SyncCallTrace;
+  // @ts-ignore
   filter: CallTraceFilter;
 }) {
   const fromAddress = toLowerCase(callTrace.action.from);
